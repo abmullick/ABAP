@@ -1,0 +1,141 @@
+# ABAP Private — Technical Architecture
+
+## Product constraints
+- Exactly two mutually paired Android devices.
+- Strictly serverless: no backend, signalling server, STUN/TURN, relay, Firebase, cloud message store or central database.
+- QR-based mutual pairing; direct encrypted networking only.
+- User-enabled foreground service; temporary message retention.
+- Offline sender queue only; no delivery while recipient is unreachable.
+
+## Proposed Android stack
+- Kotlin, Jetpack Compose, Material 3, MVVM and clean module boundaries.
+- Kotlin Coroutines/Flow and Hilt.
+- UDP sockets using Android/JVM networking APIs, ConnectivityManager and NetworkCallback.
+- Noise Protocol Framework through a vetted maintained implementation; candidate suite `Noise_XX_25519_ChaChaPoly_SHA256`, subject to library compatibility and security review.
+- Android Keystore-backed identity/key protection.
+- AudioRecord/AudioTrack and libopus.
+- Room with SQLCipher-compatible encrypted SQLite.
+- CameraX/ML Kit for QR scanning; a maintained QR encoder.
+- JUnit, coroutine tests and AndroidX instrumentation tests.
+
+Pin dependency versions in a Gradle version catalog after checking maintenance, Android compatibility, security history and licences. Do not implement cryptographic primitives or codecs from scratch.
+
+## Suggested Gradle modules
+
+```text
+ABAP-Private/
+├── settings.gradle.kts
+├── build.gradle.kts
+├── gradle/libs.versions.toml
+├── app/
+├── core/
+│   ├── common/
+│   ├── identity/
+│   ├── crypto/
+│   ├── protocol/
+│   ├── network/
+│   ├── storage/
+│   └── security/
+├── feature/
+│   ├── pairing/
+│   ├── chat/
+│   ├── calling/
+│   ├── connection/
+│   ├── diagnostics/
+│   └── settings/
+├── service/
+│   ├── foreground/
+│   └── audio/
+└── test-support/
+    ├── protocol-testkit/
+    └── network-simulator/
+```
+
+| Module | Responsibility |
+|---|---|
+| app | Composition, navigation and dependency wiring |
+| core:common | Shared types and error model |
+| core:identity | Device identity lifecycle |
+| core:crypto | Noise handshake, session keys and AEAD integration |
+| core:protocol | Versioned packet schema, framing and validation |
+| core:network | UDP sockets, IPv4/IPv6 candidates and direct connectivity |
+| core:storage | Encrypted database, attachment store and expiry |
+| core:security | Peer pinning, trust state and replay policy |
+| feature:pairing | QR pairing and mutual verification |
+| feature:chat | Messaging UI and delivery state |
+| feature:calling | Call UI and state |
+| feature:connection | Connection state and recovery controls |
+| feature:diagnostics | Network capability and failure explanation |
+| feature:settings | Retention, privacy and foreground preferences |
+| service:foreground | User-visible persistent connection service |
+| service:audio | Audio capture, playback and routing |
+
+## Device identity and QR pairing
+
+Each device creates a random device ID and long-term identity key. Protect private material with Android Keystore-backed storage. Keep identity keys separate from ephemeral handshake keys and traffic keys.
+
+1. Phone A creates a short-lived, single-use invitation.
+2. Phone B scans and validates its structure and signature.
+3. Phone B creates a response bound to A's challenge.
+4. Phone A scans the response and verifies B.
+5. Both show a short fingerprint for out-of-band comparison.
+6. Both users confirm; each pins the other's public identity.
+7. Invitations expire and cannot be replayed.
+
+Use a versioned CBOR (or equally strict binary) schema containing protocol version, device ID, public identity key, ephemeral key, nonce, expiry, capabilities and signature. Bind the challenge and all relevant transcript fields into authentication. QR data must never include private keys or reusable secrets.
+
+QR pairing exchanges identity and initial endpoint information; it cannot notify a peer about future arbitrary IP changes. A new QR exchange or manual endpoint update may be required after address changes.
+
+## Direct network connectivity
+
+Priority:
+1. Global IPv6 direct connection, where both endpoints are globally reachable and firewall rules allow traffic.
+2. Explicitly configured public IPv4 endpoint, normally requiring a stable public address and router port forwarding.
+3. Best-effort UDP hole punching when endpoint observations and coordinated attempts are available.
+4. Otherwise report offline/unreachable. No relay fallback.
+
+CGNAT, symmetric NAT, restrictive firewalls and network address changes can make direct connectivity impossible. Do not promise universal internet reachability. Distinguish loopback, link-local, private and global addresses. Re-evaluate candidates when Android reports network changes.
+
+Connection states: STOPPED, STARTING, DISCOVERING, CONNECTING, AUTHENTICATING, CONNECTED, IDLE_UNREACHABLE, RECONNECTING, FAILED. A peer is CONNECTED only after a cryptographic handshake verifies the pinned identity.
+
+## Secure transport
+
+Integrate a vetted Noise implementation. `Noise_XX_25519_ChaChaPoly_SHA256` is an initial candidate only; confirm library support and bind paired long-term identity authentication into the handshake transcript. Derive independent directional traffic keys. Enforce nonce uniqueness, replay rejection, bounded packet sizes, sequence windows, authenticated headers and rekeying according to the chosen implementation. Erase transient session secrets at teardown.
+
+Versioned logical channels:
+
+| Channel | Content | Delivery |
+|---|---|---|
+| Control | Handshake completion, ping, close | Reliable |
+| Chat | Messages and receipts | Reliable |
+| Sync | Message reconciliation | Reliable |
+| Voice | Opus frames | Low latency/loss tolerant |
+| Media | Encrypted attachment chunks | Reliable |
+
+A UDP reliability layer requires acknowledgements, bounded retransmission, duplicate suppression, congestion control and path-MTU handling. Do not create an unbounded home-grown retransmission loop. Evaluate a mature QUIC implementation only if it fits the strict direct topology and identity model; QUIC does not solve rendezvous/NAT discovery.
+
+## Messaging
+
+Message envelope: UUID, conversation ID, sender device ID, sender sequence, type, creation/expiry metadata, schema version and encrypted content. States: PENDING, SENDING, DELIVERED, READ, EXPIRED, FAILED. Use idempotent receive handling and bounded retries. When peer is offline, queue locally on sender; there is no server queue, so delivery waits until direct connectivity returns.
+
+## Voice
+
+Pipeline: AudioRecord → audio processing → Opus encode → encrypted voice channel → decrypt → Opus decode → adaptive jitter buffer → AudioTrack.
+
+Initial benchmark settings: 48 kHz mono, 20 ms frames, 24–32 kbps starting bitrate with adaptive adjustment, packet-loss concealment and echo/noise processing where supported. These are tuning targets, not guarantees. Handle audio focus, speaker/earpiece and Bluetooth routing. Keep voice independent from bulk file transfer. Call recording disabled by default.
+
+## Foreground service
+
+A user-enabled `PeerConnectionService` displays a persistent notification and owns socket, peer state, incoming messages and call invitations. Comply with target Android SDK foreground-service types, microphone permissions, background-start restrictions, notification permission and Doze behaviour. A foreground service does not prevent force-stop, shutdown, carrier NAT or network unreachability. Without push/rendezvous infrastructure, incoming calls cannot be guaranteed when app/peer is unavailable.
+
+## Storage and retention
+
+Use SQLCipher-backed Room and encrypted attachment files. Initial configurable defaults: text/images/documents 24 hours, call metadata 24 hours, call recordings disabled. Enforce expiry on read and during cleanup. Clean attachments, thumbnails, temporary copies and relevant caches. Run cleanup at startup and periodically while active; WorkManager is supplementary, not an exact-time deletion guarantee. Disable Android cloud backup and redact notifications/logs. Consider SQLite WAL/journal files in the threat model. Deletion cannot remove screenshots or copies exported by the other device.
+
+## Permissions
+
+Request only those required by implemented features: INTERNET, ACCESS_NETWORK_STATE, applicable FOREGROUND_SERVICE and service-type permissions, RECORD_AUDIO, CAMERA for QR scanning, POST_NOTIFICATIONS, and WAKE_LOCK only if justified. Verify exact declarations against target SDK. No contacts, SMS, call logs, phone state, location or broad storage access.
+
+## Not in scope
+
+Group chat, more than two identities, account registration, public directory, server-side storage, cloud push, TURN/media relay, cloud backup or guaranteed reachability on every carrier.
