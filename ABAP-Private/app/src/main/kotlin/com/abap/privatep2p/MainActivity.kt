@@ -25,6 +25,14 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.DisposableEffect
+import com.abap.privatep2p.core.network.DirectPeerListener
+import com.abap.privatep2p.core.network.DirectSecureChannel
+import com.abap.privatep2p.feature.pairing.StoredChatMessage
+import com.abap.privatep2p.service.audio.AudioCallSession
+import kotlinx.coroutines.isActive
+import java.util.UUID
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -95,6 +103,18 @@ private fun ABAPPrivateApp() {
     var scannedResponse by remember { mutableStateOf<PairingResponse?>(null) }
     var candidatePeer by remember { mutableStateOf<PinnedPeer?>(null) }
     var pinnedPeer by remember { mutableStateOf<PinnedPeer?>(null) }
+    var remoteAddress by remember { mutableStateOf("") }
+    var connectionStatus by remember { mutableStateOf("Not connected") }
+    var peerChannel by remember { mutableStateOf<DirectSecureChannel?>(null) }
+    var directListener by remember { mutableStateOf<DirectPeerListener?>(null) }
+    var messageDraft by remember { mutableStateOf("") }
+    var chatMessages by remember { mutableStateOf<List<StoredChatMessage>>(emptyList()) }
+    var voiceSession by remember { mutableStateOf<AudioCallSession?>(null) }
+    var callStatus by remember { mutableStateOf("No active call") }
+    var incomingCall by remember { mutableStateOf(false) }
+    var microphonePermissionGranted by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+    }
     var importTarget by remember { mutableStateOf(PairingScreen.SCAN_INVITATION) }
     var cameraPermissionGranted by remember {
         mutableStateOf(
@@ -110,6 +130,14 @@ private fun ABAPPrivateApp() {
         if (!granted) errorMessage = "Camera permission is required to scan pairing QR codes."
     }
 
+    val microphonePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        microphonePermissionGranted = granted
+        if (!granted) errorMessage = "Microphone permission is required for voice calls."
+        else statusMessage = "Microphone permission granted. Tap Call or Accept again."
+    }
+
     fun runTask(task: suspend () -> Unit) {
         scope.launch {
             busy = true
@@ -121,6 +149,161 @@ private fun ABAPPrivateApp() {
             } finally {
                 busy = false
             }
+        }
+    }
+
+    fun startAudioSession() {
+        val channel = peerChannel ?: error("There is no secure peer connection")
+        val session = AudioCallSession(channel) { failure ->
+            scope.launch(Dispatchers.Main) { callStatus = "Audio error: ${failure.message}" }
+        }
+        session.start()
+        voiceSession = session
+        callStatus = "Voice call active"
+    }
+
+    fun attachChannel(channel: DirectSecureChannel) {
+        peerChannel?.close()
+        peerChannel = channel
+        connectionStatus = "Secure connection established and peer authenticated"
+        scope.launch(Dispatchers.IO) {
+            try {
+                while (isActive) {
+                    val frame = channel.receive()
+                    when (frame.type) {
+                        DirectSecureChannel.TYPE_TEXT -> {
+                            val body = String(frame.payload, Charsets.UTF_8)
+                            if (body.isNotBlank() && body.length <= 16_384) {
+                                withContext(Dispatchers.Main) {
+                                    val item = StoredChatMessage(UUID.randomUUID().toString(), false, body, System.currentTimeMillis())
+                                    pairingStore.appendMessage(item)
+                                    chatMessages = chatMessages + item
+                                }
+                            }
+                        }
+                        DirectSecureChannel.TYPE_AUDIO -> voiceSession?.playIncoming(frame.payload)
+                        DirectSecureChannel.TYPE_CALL_REQUEST -> withContext(Dispatchers.Main) {
+                            incomingCall = true
+                            callStatus = "Incoming voice call"
+                        }
+                        DirectSecureChannel.TYPE_CALL_ACCEPT -> withContext(Dispatchers.Main) {
+                            incomingCall = false
+                            runCatching { startAudioSession() }
+                                .onFailure { callStatus = "Could not start call: ${it.message}" }
+                        }
+                        DirectSecureChannel.TYPE_CALL_REJECT -> withContext(Dispatchers.Main) {
+                            incomingCall = false
+                            callStatus = "Peer declined the call"
+                        }
+                        DirectSecureChannel.TYPE_CALL_END -> withContext(Dispatchers.Main) {
+                            voiceSession?.close()
+                            voiceSession = null
+                            incomingCall = false
+                            callStatus = "Call ended by peer"
+                        }
+                    }
+                }
+            } catch (failure: Throwable) {
+                withContext(Dispatchers.Main) {
+                    connectionStatus = "Disconnected: ${failure.message ?: "connection closed"}"
+                    peerChannel = null
+                    voiceSession?.close()
+                    voiceSession = null
+                    incomingCall = false
+                    callStatus = "No active call"
+                }
+            }
+        }
+    }
+
+    fun startDirectListener() {
+        val peer = pinnedPeer ?: error("Pair a device first")
+        if (directListener != null) {
+            connectionStatus = "Already listening on TCP port 47831"
+            return
+        }
+        val listener = DirectPeerListener(
+            47831,
+            identityStore.getOrCreate(),
+            peer.publicKey,
+            onConnected = { channel -> scope.launch(Dispatchers.Main) { attachChannel(channel) } },
+            onError = { failure -> scope.launch(Dispatchers.Main) {
+                connectionStatus = "Listener error: ${failure.message}"
+            } }
+        )
+        listener.start()
+        directListener = listener
+        connectionStatus = "Listening on TCP port 47831. Peer needs a reachable IP/IPv6 address or port-forwarded IPv4."
+    }
+
+    fun connectToPeer() {
+        val peer = pinnedPeer ?: error("Pair a device first")
+        val host = remoteAddress.trim()
+        require(host.isNotBlank()) { "Enter the peer's reachable IP address or hostname" }
+        runTask {
+            val channel = withContext(Dispatchers.IO) {
+                DirectSecureChannel.connect(host, 47831, identityStore.getOrCreate(), peer.publicKey)
+            }
+            attachChannel(channel)
+        }
+    }
+
+    fun sendChatMessage() {
+        val channel = peerChannel ?: run { errorMessage = "Connect to your peer first"; return }
+        val body = messageDraft.trim()
+        if (body.isEmpty()) return
+        runTask {
+            withContext(Dispatchers.IO) { channel.send(DirectSecureChannel.TYPE_TEXT, body.toByteArray(Charsets.UTF_8)) }
+            val item = StoredChatMessage(UUID.randomUUID().toString(), true, body, System.currentTimeMillis())
+            withContext(Dispatchers.IO) { pairingStore.appendMessage(item) }
+            chatMessages = chatMessages + item
+            messageDraft = ""
+        }
+    }
+
+    fun requestVoiceCall() {
+        val channel = peerChannel ?: run { errorMessage = "Connect to your peer first"; return }
+        runTask {
+            withContext(Dispatchers.IO) { channel.send(DirectSecureChannel.TYPE_CALL_REQUEST, byteArrayOf()) }
+            callStatus = "Calling peer…"
+        }
+    }
+
+    fun acceptVoiceCall() {
+        val channel = peerChannel ?: return
+        runTask {
+            withContext(Dispatchers.IO) { channel.send(DirectSecureChannel.TYPE_CALL_ACCEPT, byteArrayOf()) }
+            incomingCall = false
+            startAudioSession()
+        }
+    }
+
+    fun rejectVoiceCall() {
+        val channel = peerChannel ?: return
+        runTask {
+            withContext(Dispatchers.IO) { channel.send(DirectSecureChannel.TYPE_CALL_REJECT, byteArrayOf()) }
+            incomingCall = false
+            callStatus = "Call rejected"
+        }
+    }
+
+    fun endVoiceCall() {
+        val channel = peerChannel
+        runTask {
+            if (channel != null) withContext(Dispatchers.IO) {
+                channel.send(DirectSecureChannel.TYPE_CALL_END, byteArrayOf())
+            }
+            voiceSession?.close()
+            voiceSession = null
+            callStatus = "Call ended"
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            directListener?.close()
+            voiceSession?.close()
+            peerChannel?.close()
         }
     }
 
@@ -167,6 +350,7 @@ private fun ABAPPrivateApp() {
             }
             deviceFingerprint = result.fingerprint
             pinnedPeer = result.peer
+            chatMessages = withContext(Dispatchers.IO) { pairingStore.loadMessages() }
             activeInvitation = result.invitation
             invitationQr = result.invitationQr
             result.invitation?.let {
@@ -388,6 +572,81 @@ private fun ABAPPrivateApp() {
                                     "Pairing is stored encrypted on this device. Restarting the app, changing networks or travelling will not ask you to pair again.",
                                     style = MaterialTheme.typography.bodySmall
                                 )
+                                Spacer(Modifier.height(10.dp))
+                                Text("Direct peer connection", style = MaterialTheme.typography.titleLarge)
+                                Text(
+                                    "No central server or relay is used. Start listening on both phones, then connect using the other phone's reachable address. TCP port 47831 must be reachable (global IPv6 or router port forwarding). Carrier-grade NAT may prevent a direct connection.",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                OutlinedTextField(
+                                    value = remoteAddress,
+                                    onValueChange = { remoteAddress = it },
+                                    label = { Text("Peer IP address or hostname") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true
+                                )
+                                Button(
+                                    onClick = { runTask { withContext(Dispatchers.IO) { startDirectListener() } } },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = !busy && directListener == null
+                                ) { Text("Listen on port 47831") }
+                                Button(
+                                    onClick = ::connectToPeer,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = !busy && peerChannel == null && remoteAddress.isNotBlank()
+                                ) { Text("Connect securely to peer") }
+                                Text(connectionStatus, style = MaterialTheme.typography.bodySmall)
+                                Spacer(Modifier.height(8.dp))
+                                Text("Private messages", style = MaterialTheme.typography.titleLarge)
+                                chatMessages.takeLast(100).forEach { message ->
+                                    Text(
+                                        (if (message.outgoing) "You: " else "${pinnedPeer!!.displayName}: ") + message.body,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                                OutlinedTextField(
+                                    value = messageDraft,
+                                    onValueChange = { if (it.length <= 16_384) messageDraft = it },
+                                    label = { Text("Write an encrypted message") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Button(
+                                    onClick = ::sendChatMessage,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = peerChannel != null && messageDraft.isNotBlank() && !busy
+                                ) { Text("Send message") }
+                                Spacer(Modifier.height(8.dp))
+                                Text("Voice calling", style = MaterialTheme.typography.titleLarge)
+                                Text(callStatus, style = MaterialTheme.typography.bodySmall)
+                                if (incomingCall) {
+                                    Button(
+                                        onClick = {
+                                            if (microphonePermissionGranted) acceptVoiceCall()
+                                            else microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text("Accept voice call") }
+                                    OutlinedButton(
+                                        onClick = ::rejectVoiceCall,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text("Decline call") }
+                                } else if (voiceSession == null) {
+                                    Button(
+                                        onClick = {
+                                            if (microphonePermissionGranted) requestVoiceCall()
+                                            else microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        enabled = peerChannel != null && !busy
+                                    ) { Text("Call peer") }
+                                } else {
+                                    Button(
+                                        onClick = ::endVoiceCall,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text("End call") }
+                                }
+
                                 if (responseQr != null) {
                                     OutlinedButton(
                                         onClick = { screen = PairingScreen.SHOW_RESPONSE },
