@@ -11,6 +11,7 @@ import java.net.Socket
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 import java.security.SecureRandom
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.X509EncodedKeySpec
@@ -91,6 +92,7 @@ class DirectSecureChannel private constructor(
         const val TYPE_CALL_REJECT = 5
         const val TYPE_CALL_END = 6
         private const val MAX_FRAME_BYTES = 64 * 1024
+        private const val HANDSHAKE_TIMEOUT_MS = 15_000
         private const val NONCE_BYTES = 32
         private const val LABEL_CLIENT = "ABAP-PRIVATE-CLIENT-HANDSHAKE-V1"
         private const val LABEL_SERVER = "ABAP-PRIVATE-SERVER-HANDSHAKE-V1"
@@ -108,8 +110,11 @@ class DirectSecureChannel private constructor(
             val socket = Socket()
             socket.tcpNoDelay = true
             socket.connect(InetSocketAddress(host, port), connectTimeoutMs)
+            socket.soTimeout = HANDSHAKE_TIMEOUT_MS
             return try {
-                clientHandshake(socket, localIdentity, expectedPeerPublicKey)
+                clientHandshake(socket, localIdentity, expectedPeerPublicKey).also {
+                    socket.soTimeout = 0
+                }
             } catch (error: Exception) {
                 runCatching { socket.close() }
                 throw error
@@ -122,8 +127,11 @@ class DirectSecureChannel private constructor(
             expectedPeerPublicKey: ByteArray
         ): DirectSecureChannel {
             socket.tcpNoDelay = true
+            socket.soTimeout = HANDSHAKE_TIMEOUT_MS
             return try {
-                serverHandshake(socket, localIdentity, expectedPeerPublicKey)
+                serverHandshake(socket, localIdentity, expectedPeerPublicKey).also {
+                    socket.soTimeout = 0
+                }
             } catch (error: Exception) {
                 runCatching { socket.close() }
                 throw error
@@ -284,6 +292,7 @@ class DirectPeerListener(
 ) : Closeable {
     private val server = ServerSocket()
     @Volatile private var running = false
+    private val handshakeActive = AtomicBoolean(false)
     private var thread: Thread? = null
 
     fun start() {
@@ -296,13 +305,19 @@ class DirectPeerListener(
             while (running) {
                 try {
                     val socket = server.accept()
+                    if (!handshakeActive.compareAndSet(false, true)) {
+                        socket.close()
+                        continue
+                    }
                     Thread({
                         try {
                             onConnected(DirectSecureChannel.accept(socket, localIdentity, expectedPeerPublicKey))
                         } catch (error: Throwable) {
                             onError(error)
+                        } finally {
+                            handshakeActive.set(false)
                         }
-                    }, "abap-private-handshake").start()
+                    }, "abap-private-handshake").apply { isDaemon = true; start() }
                 } catch (error: Throwable) {
                     if (running) onError(error)
                 }
