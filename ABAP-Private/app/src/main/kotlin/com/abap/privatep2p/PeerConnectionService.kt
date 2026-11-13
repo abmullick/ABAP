@@ -194,6 +194,7 @@ class PeerConnectionService : Service() {
                         DirectSecureChannel.TYPE_CALL_REJECT -> {
                             incomingCall = false
                             callStatus = "Peer declined the call"
+                            runCatching { promoteForeground(false) }
                             notifyCallStatus()
                         }
                         DirectSecureChannel.TYPE_CALL_END -> {
@@ -236,12 +237,18 @@ class PeerConnectionService : Service() {
 
     private fun requestCall() {
         val secure = channel ?: run { reportError("Connect to your peer first"); return }
-        runCatching { secure.send(DirectSecureChannel.TYPE_CALL_REQUEST, byteArrayOf()) }
-            .onSuccess {
-                callStatus = "Calling peer…"
-                notifyCallStatus()
-            }
-            .onFailure { reportError(it.message ?: "Could not request a call") }
+        runCatching {
+            // Promote while the Activity is visible so an accepted call can continue
+            // using the microphone after the user backgrounds the app.
+            promoteForeground(true)
+            secure.send(DirectSecureChannel.TYPE_CALL_REQUEST, byteArrayOf())
+        }.onSuccess {
+            callStatus = "Calling peer…"
+            notifyCallStatus()
+        }.onFailure {
+            runCatching { promoteForeground(false) }
+            reportError(it.message ?: "Could not request a call")
+        }
     }
 
     private fun acceptCall() {
@@ -310,6 +317,8 @@ class PeerConnectionService : Service() {
         updateStatus("Connection stopped", false)
         callStatus = "No active call"
         notifyCallStatus()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun updateStatus(status: String, connected: Boolean) {
