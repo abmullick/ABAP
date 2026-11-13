@@ -61,10 +61,13 @@ class PairingCoordinator(
     fun createResponse(
         invitation: PairingInvitation,
         displayName: String,
-        userConfirmedInviterFingerprint: Boolean
+        confirmedInviterFingerprint: String
     ): PairingResponse {
-        require(userConfirmedInviterFingerprint) { "Confirm the inviter fingerprint before pairing" }
         requireValidInvitation(invitation, clockSeconds())
+        val expectedFingerprint = AndroidDeviceIdentityStore.fingerprint(invitation.publicKey)
+        require(confirmedInviterFingerprint == expectedFingerprint) {
+            "The confirmed inviter fingerprint does not match this invitation"
+        }
         requireValidName(displayName)
         val identity = identityStore()
         require(!identity.publicKeyEncoded.contentEquals(invitation.publicKey)) {
@@ -84,9 +87,8 @@ class PairingCoordinator(
     fun verifyResponse(
         invitation: PairingInvitation,
         response: PairingResponse,
-        userConfirmedPeerFingerprint: Boolean
+        confirmedPeerFingerprint: String
     ): PinnedPeer {
-        require(userConfirmedPeerFingerprint) { "Confirm the responder fingerprint before pinning" }
         requireValidInvitation(invitation, clockSeconds())
         require(response.invitationId == invitation.invitationId) { "Response belongs to another invitation" }
         require(response.invitationDigest.size == SHA256_BYTES)
@@ -106,9 +108,12 @@ class PairingCoordinator(
             )
         ) { "Invalid responder signature" }
 
+        val actualFingerprint = AndroidDeviceIdentityStore.fingerprint(response.publicKey)
+        require(confirmedPeerFingerprint == actualFingerprint) {
+            "The confirmed peer fingerprint does not match this response"
+        }
         return PinnedPeer(
-            response.displayName, response.publicKey.copyOf(),
-            AndroidDeviceIdentityStore.fingerprint(response.publicKey), clockSeconds()
+            response.displayName, response.publicKey.copyOf(), actualFingerprint, clockSeconds()
         )
     }
 
