@@ -22,5 +22,6 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:identity"))
     testImplementation(libs.junit)
 }
