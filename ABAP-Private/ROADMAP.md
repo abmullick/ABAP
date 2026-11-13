@@ -1,29 +1,31 @@
 # ABAP Private — Development Roadmap
 
 ## Milestone 0: Android foundation
-- Create native Kotlin Android project and Gradle version catalog.
-- Establish package namespace, module boundaries and CI build.
-- Add formatting, static analysis and unit-test setup.
-- Document dependency review and release signing.
+- [x] Create native Kotlin Android project and Gradle version catalog.
+- [x] Establish package namespace and module boundaries.
+- [ ] Add CI build, formatting, static analysis and unit-test setup.
 
 **Exit:** clean debug build and baseline tests pass.
 
 ## Milestone 1: Identity and QR pairing
-- Generate device identity keys.
-- Implement versioned QR invitation/response.
-- Add single-use challenges, expiry and transcript binding.
-- Implement mutual fingerprint confirmation and peer pinning.
-- Add revoke-and-repair flow.
+- [x] Generate a persistent P-256 device signing identity in Android Keystore.
+- [x] Define versioned, signed invitation and response QR payloads.
+- [x] Add bounded invitation expiry, signature validation and invitation-digest binding.
+- [x] Add SHA-256 public-key fingerprints and explicit confirmation gates in pairing APIs.
+- [x] Add QR bitmap generation and an initial invitation display screen.
+- [ ] Add camera QR scanning/import UI and display/confirmation screens on both devices.
+- [ ] Persist the single pinned peer securely; implement durable single-use/replay tracking and revoke/re-pair.
+- [ ] Add replay, tamper, expiry, third-device and two-physical-device acceptance tests.
 
-**Exit:** two physical devices pair and mutually authenticate; an unrelated third device is rejected.
+**Exit:** two physical devices pair and mutually authenticate; an unrelated third device is rejected. This exit criterion is not yet met.
 
 ## Milestone 2: Direct encrypted connectivity proof
-- Implement network/interface discovery.
-- Enumerate global IPv6 candidates and configured IPv4 endpoints.
-- Implement direct UDP sockets.
-- Integrate vetted Noise handshake and pinned peer authentication.
-- Add packet framing, counters, replay rejection and diagnostics.
-- Test IPv6, configured IPv4, Wi-Fi and mobile combinations.
+- [ ] Implement network/interface discovery.
+- [ ] Enumerate global IPv6 candidates and configured IPv4 endpoints.
+- [ ] Implement direct UDP sockets.
+- [ ] Integrate vetted Noise handshake and pinned peer authentication.
+- [ ] Add packet framing, counters, replay rejection and diagnostics.
+- [ ] Test IPv6, configured IPv4, Wi-Fi and mobile combinations.
 
 **Exit:** two physical devices establish direct authenticated encrypted connectivity on documented supported networks, with packet capture evidence and no server/relay traffic.
 
