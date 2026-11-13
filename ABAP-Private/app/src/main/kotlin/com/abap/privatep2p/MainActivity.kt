@@ -139,7 +139,7 @@ private fun ABAPPrivateApp() {
             invitationQr = result.third
             invitationExpiry = Instant.ofEpochSecond(result.first.expiresAtEpochSeconds)
                 .atZone(ZoneId.systemDefault())
-                .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+                .format(DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm:ss"))
             statusMessage = "Invitation ready. It expires at ${invitationExpiry}."
             screen = PairingScreen.HOME
         }
@@ -172,7 +172,7 @@ private fun ABAPPrivateApp() {
             result.invitation?.let {
                 invitationExpiry = Instant.ofEpochSecond(it.expiresAtEpochSeconds)
                     .atZone(ZoneId.systemDefault())
-                    .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+                    .format(DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm:ss"))
             }
             if (result.pendingResponse != null) {
                 responsePayload = result.pendingResponse.encodedPayload
