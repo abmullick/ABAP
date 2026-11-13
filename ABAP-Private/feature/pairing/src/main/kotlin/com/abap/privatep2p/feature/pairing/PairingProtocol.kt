@@ -188,17 +188,20 @@ class PairingCoordinator(
         writeLong(value.createdAtEpochSeconds)
         writeLong(value.expiresAtEpochSeconds)
         writeUTF(value.displayName)
-        writeBytes(value.publicKey)
+        writeInt(value.publicKey.size)
+        write(value.publicKey)
     }
 
     private fun responseSigningBytes(value: PairingResponse): ByteArray = canonical {
         writeUTF(RESPONSE_TYPE)
         writeInt(VERSION)
         writeUTF(value.invitationId)
-        writeBytes(value.invitationDigest)
+        writeInt(value.invitationDigest.size)
+        write(value.invitationDigest)
         writeLong(value.createdAtEpochSeconds)
         writeUTF(value.displayName)
-        writeBytes(value.publicKey)
+        writeInt(value.publicKey.size)
+        write(value.publicKey)
     }
 
     private fun invitationDigest(value: PairingInvitation): ByteArray =
