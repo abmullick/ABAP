@@ -70,21 +70,23 @@ ABAP-Private/
 | service:foreground | User-visible persistent connection service |
 | service:audio | Audio capture, playback and routing |
 
-## Device identity and QR pairing
+## Device identity and remote QR pairing
 
 Each device creates a random device ID and long-term identity key. Protect private material with Android Keystore-backed storage. Keep identity keys separate from ephemeral handshake keys and traffic keys.
 
-1. Phone A creates a short-lived, single-use invitation.
-2. Phone B scans and validates its structure and signature.
-3. Phone B creates a response bound to A's challenge.
-4. Phone A scans the response and verifies B.
-5. Both show a short fingerprint for out-of-band comparison.
-6. Both users confirm; each pins the other's public identity.
-7. Invitations expire and cannot be replayed.
+Pairing is a one-time trust operation and must work remotely. The invitation and response are QR images that users can save and exchange through an independent channel such as email or an existing messaging app. Each recipient imports the image from the Android document picker; camera scanning remains an optional convenience, not a physical-presence requirement.
 
-Use a versioned CBOR (or equally strict binary) schema containing protocol version, device ID, public identity key, ephemeral key, nonce, expiry, capabilities and signature. Bind the challenge and all relevant transcript fields into authentication. QR data must never include private keys or reusable secrets.
+1. Phone A creates a short-lived, single-use signed invitation and persists its encoded payload in encrypted local pairing state.
+2. Phone A exports the QR as a PNG and sends it through an independent channel.
+3. Phone B imports the image, decodes and validates its structure, signature and expiry.
+4. Phone B creates a response bound to A's challenge, pins A's identity after fingerprint confirmation, and persists the signed response QR encrypted.
+5. Phone B exports and sends the response image to A.
+6. Phone A imports the response, verifies the signature and invitation binding, confirms B's fingerprint, and pins B.
+7. Both devices retain the peer trust record across app restarts and network changes. Re-pairing is not part of ordinary reconnection.
 
-QR pairing exchanges identity and initial endpoint information; it cannot notify a peer about future arbitrary IP changes. A new QR exchange or manual endpoint update may be required after address changes.
+Use a versioned CBOR (or equally strict binary) schema containing protocol version, device ID, public identity key, nonce, expiry, capabilities and signature. Bind the challenge and all relevant transcript fields into authentication. QR data must never include private keys or reusable secrets.
+
+The current invitation/response format and encrypted local peer store implement identity trust, not endpoint rendezvous. QR images do not themselves reveal a reachable internet address or notify a peer about later IP changes. The direct-connection milestone must separately define endpoint discovery/recovery without introducing a server, signalling service, STUN/TURN or relay.
 
 ## Direct network connectivity
 
