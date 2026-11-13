@@ -12,4 +12,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 }
-dependencies { testImplementation(libs.junit) }
+dependencies {
+    implementation(project(":core:network"))
+    testImplementation(libs.junit)
+}
