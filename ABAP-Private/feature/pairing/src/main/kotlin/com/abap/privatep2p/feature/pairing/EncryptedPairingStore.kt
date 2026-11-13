@@ -51,6 +51,11 @@ class EncryptedPairingStore(
     @Synchronized
     fun completePairing(peer: PinnedPeer, invitationId: String) {
         require(invitationId.isNotBlank())
+        require(peer.publicKey.isNotEmpty() && peer.publicKey.size <= MAX_PUBLIC_KEY_BYTES)
+        require(peer.displayName.isNotBlank() && peer.displayName.length <= MAX_DISPLAY_NAME_CHARS)
+        require(peer.fingerprint == AndroidDeviceIdentityStoreFingerprint.of(peer.publicKey)) {
+            "Peer fingerprint does not match its public key"
+        }
         val state = readState()
         val consumed = state.optJSONArray("consumedInvitations") ?: JSONArray()
         for (index in 0 until consumed.length()) {
@@ -151,6 +156,8 @@ class EncryptedPairingStore(
         private const val GCM_NONCE_BYTES = 12
         private const val GCM_TAG_BITS = 128
         private const val MAX_CONSUMED_INVITATIONS = 64
+        private const val MAX_PUBLIC_KEY_BYTES = 512
+        private const val MAX_DISPLAY_NAME_CHARS = 48
         private val ASSOCIATED_DATA = "ABAP_PRIVATE_PAIRING_STATE_V1".toByteArray(Charsets.UTF_8)
     }
 }
