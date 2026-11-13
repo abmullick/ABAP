@@ -113,6 +113,7 @@ private fun ABAPPrivateApp() {
     var messageDraft by remember { mutableStateOf("") }
     var chatMessages by remember { mutableStateOf<List<StoredChatMessage>>(emptyList()) }
     var callActive by remember { mutableStateOf(false) }
+    var speakerEnabled by remember { mutableStateOf(false) }
     var callStatus by remember { mutableStateOf("No active call") }
     var incomingCall by remember { mutableStateOf(false) }
     var localEndpoints by remember { mutableStateOf<List<LocalEndpointAddress>>(emptyList()) }
@@ -175,6 +176,7 @@ private fun ABAPPrivateApp() {
             override fun onCallStatus(status: String, active: Boolean, incoming: Boolean) {
                 callStatus = status
                 callActive = active
+                if (!active) speakerEnabled = false
                 incomingCall = incoming
             }
             override fun onError(message: String) {
@@ -658,6 +660,13 @@ private fun ABAPPrivateApp() {
                                         onClick = ::endVoiceCall,
                                         modifier = Modifier.fillMaxWidth()
                                     ) { Text("End call") }
+                                    OutlinedButton(
+                                        onClick = {
+                                            speakerEnabled = !speakerEnabled
+                                            peerService?.setSpeakerphone(speakerEnabled)
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text(if (speakerEnabled) "Use earpiece" else "Use speaker") }
                                 }
 
                                 if (responseQr != null) {
