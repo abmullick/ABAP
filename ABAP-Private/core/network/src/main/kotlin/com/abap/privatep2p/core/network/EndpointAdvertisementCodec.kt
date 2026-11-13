@@ -14,7 +14,7 @@ import java.security.Signature
 import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 
-data class DirectEndpoint(val host: String, val port: Int = DEFAULT_PORT)
+data class DirectEndpoint(val host: String, val port: Int = 47831)
 
 data class EndpointAdvertisement(
     val issuedAtEpochSeconds: Long,
@@ -79,6 +79,7 @@ object EndpointAdvertisementCodec {
         require(input.readUnsignedByte() == VERSION) { "Unsupported endpoint QR version" }
         val issuedAt = input.readLong()
         val expiresAt = input.readLong()
+        require(issuedAt >= 0) { "Endpoint QR issue time is invalid" }
         require(issuedAt <= nowEpochSeconds + CLOCK_SKEW_SECONDS) { "Endpoint QR was issued in the future" }
         require(expiresAt > nowEpochSeconds) { "Endpoint QR has expired; ask your peer to share a fresh one" }
         require(expiresAt > issuedAt && expiresAt - issuedAt <= 7 * 24 * 60 * 60L) {
