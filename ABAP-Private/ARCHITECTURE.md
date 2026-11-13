@@ -7,6 +7,17 @@
 - User-enabled foreground service; temporary message retention.
 - Offline sender queue only; no delivery while recipient is unreachable.
 
+## Current prototype implementation
+
+The current branch contains a functional implementation slice, not the complete target architecture:
+- Direct TCP listener on port 47831 and manual host/port outgoing connection.
+- Mutual authentication using the two QR-pinned P-256 identity keys, ephemeral P-256 ECDH, a signed transcript, HKDF-SHA256 and directional AES-256-GCM keys.
+- Length-bounded encrypted frames with per-direction sequence counters.
+- Text chat over the encrypted TCP stream and encrypted local message history (up to 2,000 messages).
+- Basic call request/accept/reject/end controls and 16 kHz mono PCM audio capture/playback over the encrypted stream.
+
+The transport's custom handshake is an initial prototype and has not been independently audited. It must receive cryptographic review or be replaced with a maintained Noise implementation before production use. TCP voice is a proof of function, not a low-latency voice architecture. There is no offline delivery queue, message receipt protocol, Opus codec, jitter buffer, endpoint discovery, NAT traversal or foreground call service yet.
+
 ## Proposed Android stack
 - Kotlin, Jetpack Compose, Material 3, MVVM and clean module boundaries.
 - Kotlin Coroutines/Flow and Hilt.
@@ -90,6 +101,12 @@ The current invitation/response format and encrypted local peer store implement 
 
 ## Direct network connectivity
 
+**Current prototype:** a TCP listener binds to all local interfaces on port 47831. The user manually enters the other phone's reachable IP address or hostname. The channel is mutually authenticated before any chat/call frame is accepted.
+
+This works only where a direct TCP route already exists: same reachable LAN, globally reachable IPv6 with permissive firewall rules, or public IPv4 with appropriate router port forwarding. It does not solve NAT traversal or endpoint discovery.
+
+**Planned connectivity work — no relay fallback:**
+
 Priority:
 1. Global IPv6 direct connection, where both endpoints are globally reachable and firewall rules allow traffic.
 2. Explicitly configured public IPv4 endpoint, normally requiring a stable public address and router port forwarding.
@@ -102,7 +119,9 @@ Connection states: STOPPED, STARTING, DISCOVERING, CONNECTING, AUTHENTICATING, C
 
 ## Secure transport
 
-Integrate a vetted Noise implementation. `Noise_XX_25519_ChaChaPoly_SHA256` is an initial candidate only; confirm library support and bind paired long-term identity authentication into the handshake transcript. Derive independent directional traffic keys. Enforce nonce uniqueness, replay rejection, bounded packet sizes, sequence windows, authenticated headers and rekeying according to the chosen implementation. Erase transient session secrets at teardown.
+**Current prototype:** ephemeral P-256 ECDH, ECDSA signatures from the QR-pinned device identities, transcript binding, HKDF-SHA256 and directional AES-256-GCM. Each direction uses an independent key and monotonically increasing frame counter; frame type and counter are authenticated as AAD. The listener bounds handshake duration and concurrent handshakes. This is a custom protocol prototype and is not independently audited.
+
+**Production direction:** integrate a vetted Noise implementation. `Noise_XX_25519_ChaChaPoly_SHA256` is an initial candidate only; confirm library support and bind paired long-term identity authentication into the handshake transcript. Derive independent directional traffic keys. Enforce nonce uniqueness, replay rejection, bounded packet sizes, sequence windows, authenticated headers and rekeying according to the chosen implementation. Erase transient session secrets at teardown.
 
 Versioned logical channels:
 
@@ -118,17 +137,21 @@ A UDP reliability layer requires acknowledgements, bounded retransmission, dupli
 
 ## Messaging
 
-Message envelope: UUID, conversation ID, sender device ID, sender sequence, type, creation/expiry metadata, schema version and encrypted content. States: PENDING, SENDING, DELIVERED, READ, EXPIRED, FAILED. Use idempotent receive handling and bounded retries. When peer is offline, queue locally on sender; there is no server queue, so delivery waits until direct connectivity returns.
+**Current prototype:** UTF-8 text is sent in encrypted transport frames. The last 2,000 local messages are stored inside the AES-GCM encrypted pairing-state record. There are no delivery receipts, sender-side offline queue, attachment transfer, expiry or duplicate reconciliation yet.
+
+**Target protocol:** message envelope: UUID, conversation ID, sender device ID, sender sequence, type, creation/expiry metadata, schema version and encrypted content. States: PENDING, SENDING, DELIVERED, READ, EXPIRED, FAILED. Use idempotent receive handling and bounded retries. When peer is offline, queue locally on sender; there is no server queue, so delivery waits until direct connectivity returns.
 
 ## Voice
 
-Pipeline: AudioRecord → audio processing → Opus encode → encrypted voice channel → decrypt → Opus decode → adaptive jitter buffer → AudioTrack.
+**Current prototype:** 16 kHz mono PCM16 frames are captured using AudioRecord and streamed inside the encrypted TCP channel; incoming frames are played using AudioTrack. Call request, accept, reject and end controls are encrypted. The same TCP stream carries text and audio, so head-of-line blocking can affect call quality. This is a functional prototype, not a production real-time media transport.
+
+**Target pipeline:** AudioRecord → audio processing → Opus encode → encrypted low-latency voice channel → decrypt → Opus decode → adaptive jitter buffer → AudioTrack.
 
 Initial benchmark settings: 48 kHz mono, 20 ms frames, 24–32 kbps starting bitrate with adaptive adjustment, packet-loss concealment and echo/noise processing where supported. These are tuning targets, not guarantees. Handle audio focus, speaker/earpiece and Bluetooth routing. Keep voice independent from bulk file transfer. Call recording disabled by default.
 
 ## Foreground service
 
-A user-enabled `PeerConnectionService` displays a persistent notification and owns socket, peer state, incoming messages and call invitations. Comply with target Android SDK foreground-service types, microphone permissions, background-start restrictions, notification permission and Doze behaviour. A foreground service does not prevent force-stop, shutdown, carrier NAT or network unreachability. Without push/rendezvous infrastructure, incoming calls cannot be guaranteed when app/peer is unavailable.
+A user-enabled `PeerConnectionService` displays a persistent notification and owns socket, peer state, incoming messages and call invitations. This service is not yet implemented; current listener and call lifetime are tied to the app process/UI and calls require the app to remain active. Comply with target Android SDK foreground-service types, microphone permissions, background-start restrictions, notification permission and Doze behaviour. A foreground service does not prevent force-stop, shutdown, carrier NAT or network unreachability. Without push/rendezvous infrastructure, incoming calls cannot be guaranteed when app/peer is unavailable.
 
 ## Storage and retention
 
