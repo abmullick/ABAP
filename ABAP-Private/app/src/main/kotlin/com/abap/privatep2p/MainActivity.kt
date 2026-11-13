@@ -274,9 +274,18 @@ private fun ABAPPrivateApp() {
             responseQr = null
             activeInvitation = null
             invitationQr = null
-            statusMessage = "Local peer trust revoked. The other device is not notified; pair again manually."
+            val fresh = withContext(Dispatchers.IO) {
+                val invitation = pairing.createInvitation(deviceName())
+                val payload = pairing.encodeInvitation(invitation)
+                Triple(invitation, PairingQrCode.render(payload), invitation.expiresAtEpochSeconds)
+            }
+            activeInvitation = fresh.first
+            invitationQr = fresh.second
+            invitationExpiry = Instant.ofEpochSecond(fresh.third)
+                .atZone(ZoneId.systemDefault())
+                .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+            statusMessage = "Local peer trust revoked. The other device is not notified; share a new invitation to pair again."
             screen = PairingScreen.HOME
-            createFreshInvitation()
         }
     }
 
