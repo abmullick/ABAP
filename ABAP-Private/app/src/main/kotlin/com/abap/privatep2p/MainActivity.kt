@@ -95,6 +95,7 @@ private fun ABAPPrivateApp() {
     var scannedResponse by remember { mutableStateOf<PairingResponse?>(null) }
     var candidatePeer by remember { mutableStateOf<PinnedPeer?>(null) }
     var pinnedPeer by remember { mutableStateOf<PinnedPeer?>(null) }
+    var importTarget by remember { mutableStateOf(PairingScreen.SCAN_INVITATION) }
     var cameraPermissionGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -123,6 +124,34 @@ private fun ABAPPrivateApp() {
         }
     }
 
+    val invitationExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("image/png")
+    ) { uri ->
+        val bitmap = invitationQr
+        if (uri != null && bitmap != null) runTask {
+            withContext(Dispatchers.IO) { saveQrPng(context, uri, bitmap) }
+            statusMessage = "Invitation QR image saved. Share it using your preferred messaging or email app."
+        }
+    }
+    val responseExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("image/png")
+    ) { uri ->
+        val bitmap = responseQr
+        if (uri != null && bitmap != null) runTask {
+            withContext(Dispatchers.IO) { saveQrPng(context, uri, bitmap) }
+            statusMessage = "Response QR image saved. Send it back to the other person."
+        }
+    }
+    val qrImageImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) runTask {
+            val payload = withContext(Dispatchers.IO) { readQrPayload(context, uri) }
+            screen = importTarget
+            processScannedQr(payload)
+        }
+    }
+
     fun deviceName(): String =
         (Build.MODEL ?: "Android device").trim().take(48).ifBlank { "Android device" }
 
@@ -131,6 +160,7 @@ private fun ABAPPrivateApp() {
             val result = withContext(Dispatchers.IO) {
                 val invitation = pairing.createInvitation(deviceName())
                 val payload = pairing.encodeInvitation(invitation)
+                pairingStore.saveActiveInvitationPayload(payload)
                 Triple(invitation, payload, PairingQrCode.render(payload))
             }
             activeInvitation = result.first
@@ -150,8 +180,15 @@ private fun ABAPPrivateApp() {
                 val identity = identityStore.getOrCreate()
                 val peer = pairingStore.loadPeer()
                 val pending = pairingStore.loadPendingResponse()
-                val invitation = if (peer == null) pairing.createInvitation(deviceName()) else null
+                val savedInvitation = pairingStore.loadActiveInvitationPayload()
+                val invitation = if (peer == null) {
+                    savedInvitation?.let { runCatching { pairing.decodeInvitation(it) }.getOrNull() }
+                        ?: pairing.createInvitation(deviceName())
+                } else null
                 val payload = invitation?.let(pairing::encodeInvitation)
+                if (peer == null && payload != null && payload != savedInvitation) {
+                    pairingStore.saveActiveInvitationPayload(payload)
+                }
                 val qr = payload?.let { PairingQrCode.render(it) }
                 val pendingQr = pending?.let { PairingQrCode.render(it.encodedPayload) }
                 InitialPairingState(identity.fingerprint, peer, invitation, qr, pending, pendingQr)
@@ -168,14 +205,11 @@ private fun ABAPPrivateApp() {
             if (result.pendingResponse != null) {
                 responsePayload = result.pendingResponse.encodedPayload
                 responseQr = result.pendingResponseQr
-                screen = PairingScreen.SHOW_RESPONSE
-                statusMessage = "A pairing response is saved. Show this QR to the initiating phone."
+            }
+            statusMessage = if (result.peer == null) {
+                "Your device identity and invitation are saved. Share the QR image remotely or import the other person's image."
             } else {
-                statusMessage = if (result.peer == null) {
-                    "Your device identity is ready. Share your invitation QR or scan another device."
-                } else {
-                    "This device has one pinned peer."
-                }
+                "Your peer remains paired on this device. Network changes do not require pairing again."
             }
             initialized = true
         } catch (error: Exception) {
@@ -185,8 +219,7 @@ private fun ABAPPrivateApp() {
         }
     }
 
-    fun handleScannedQr(payload: String) {
-        runTask {
+    suspend fun processScannedQr(payload: String) {
             when (screen) {
                 PairingScreen.SCAN_INVITATION -> {
                     val invitation = withContext(Dispatchers.IO) {
@@ -222,7 +255,10 @@ private fun ABAPPrivateApp() {
 
                 else -> error("The scanner is not active.")
             }
-        }
+    }
+
+    fun handleScannedQr(payload: String) {
+        runTask { processScannedQr(payload) }
     }
 
     fun confirmInviter() {
@@ -279,6 +315,7 @@ private fun ABAPPrivateApp() {
                 val payload = pairing.encodeInvitation(invitation)
                 Triple(invitation, PairingQrCode.render(payload), invitation.expiresAtEpochSeconds)
             }
+            pairingStore.saveActiveInvitationPayload(pairing.encodeInvitation(fresh.first))
             activeInvitation = fresh.first
             invitationQr = fresh.second
             invitationExpiry = Instant.ofEpochSecond(fresh.third)
@@ -339,10 +376,30 @@ private fun ABAPPrivateApp() {
                                     modifier = Modifier.fillMaxWidth()
                                 ) { Text("Scan another device's invitation") }
                                 OutlinedButton(
+                                    onClick = { invitationExportLauncher.launch("ABAP-Private-invitation.png") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = invitationQr != null
+                                ) { Text("Save invitation QR image to share") }
+                                OutlinedButton(
+                                    onClick = {
+                                        importTarget = PairingScreen.SCAN_INVITATION
+                                        qrImageImportLauncher.launch("image/*")
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("Import invitation QR image") }
+                                OutlinedButton(
                                     onClick = { screen = PairingScreen.SCAN_RESPONSE },
                                     modifier = Modifier.fillMaxWidth(),
                                     enabled = activeInvitation != null
                                 ) { Text("Scan pairing response") }
+                                OutlinedButton(
+                                    onClick = {
+                                        importTarget = PairingScreen.SCAN_RESPONSE
+                                        qrImageImportLauncher.launch("image/*")
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = activeInvitation != null
+                                ) { Text("Import response QR image") }
                                 OutlinedButton(
                                     onClick = { createFreshInvitation() },
                                     modifier = Modifier.fillMaxWidth()
@@ -350,14 +407,14 @@ private fun ABAPPrivateApp() {
                             } else {
                                 PeerCard(pinnedPeer!!)
                                 Text(
-                                    "This is a local trust record only. It does not mean a direct network connection is available.",
+                                    "Pairing is stored encrypted on this device. Restarting the app, changing networks or travelling will not ask you to pair again.",
                                     style = MaterialTheme.typography.bodySmall
                                 )
                                 if (responseQr != null) {
                                     OutlinedButton(
                                         onClick = { screen = PairingScreen.SHOW_RESPONSE },
                                         modifier = Modifier.fillMaxWidth()
-                                    ) { Text("Show saved response QR") }
+                                    ) { Text("Show / export saved response QR") }
                                 }
                                 OutlinedButton(
                                     onClick = { revokeLocalPeer() },
@@ -420,6 +477,11 @@ private fun ABAPPrivateApp() {
                                 "The other phone must scan this response QR to finish mutual pairing. This response is saved encrypted on this device so you can return to it later.",
                                 style = MaterialTheme.typography.bodySmall
                             )
+                            OutlinedButton(
+                                onClick = { responseExportLauncher.launch("ABAP-Private-response.png") },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = responseQr != null
+                            ) { Text("Save response QR image to share") }
                             Button(
                                 onClick = { screen = PairingScreen.HOME },
                                 modifier = Modifier.fillMaxWidth()
