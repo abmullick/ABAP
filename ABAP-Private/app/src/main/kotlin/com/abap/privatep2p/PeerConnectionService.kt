@@ -17,6 +17,7 @@ import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.abap.privatep2p.core.identity.AndroidDeviceIdentityStore
+import com.abap.privatep2p.core.network.DirectEndpoint
 import com.abap.privatep2p.core.network.DirectPeerListener
 import com.abap.privatep2p.core.network.DirectSecureChannel
 import com.abap.privatep2p.feature.pairing.EncryptedPairingStore
@@ -58,7 +59,8 @@ class PeerConnectionService : Service() {
         fun stopConnection() = this@PeerConnectionService.stopConnection()
         fun discoverPeers() = this@PeerConnectionService.startDiscovery()
         fun stopPeerDiscovery() = this@PeerConnectionService.stopDiscovery()
-        fun connectTo(host: String) = this@PeerConnectionService.connect(host)
+        fun connectTo(host: String) = this@PeerConnectionService.connect(listOf(DirectEndpoint(host, TCP_PORT)))
+        fun connectToEndpoints(endpoints: List<DirectEndpoint>) = this@PeerConnectionService.connect(endpoints)
     }
 
     private val binder = LocalBinder()
@@ -242,25 +244,35 @@ class PeerConnectionService : Service() {
         advertisedServiceName = null
     }
 
-    private fun connect(host: String) {
+    private fun connect(endpoints: List<DirectEndpoint>) {
         val peer = runCatching { pairingStore.loadPeer() }.getOrNull()
         if (peer == null) {
             reportError("Pair a device before connecting")
             return
         }
+        val candidates = endpoints.distinctBy { it.host to it.port }
+        if (candidates.isEmpty()) {
+            reportError("The imported endpoint QR contains no connection candidates")
+            return
+        }
         thread(name = "abap-private-connect", isDaemon = true) {
-            try {
-                updateStatus("Connecting directly to $host:$TCP_PORT…", false)
-                val secure = DirectSecureChannel.connect(
-                    host,
-                    TCP_PORT,
-                    identityStore.getOrCreate(),
-                    peer.publicKey
-                )
-                attachChannel(secure)
-            } catch (error: Exception) {
-                reportError(error.message ?: "Direct connection failed")
+            val failures = mutableListOf<String>()
+            for (endpoint in candidates) {
+                try {
+                    updateStatus("Connecting directly to ${endpoint.host}:${endpoint.port}…", false)
+                    val secure = DirectSecureChannel.connect(
+                        endpoint.host,
+                        endpoint.port,
+                        identityStore.getOrCreate(),
+                        peer.publicKey
+                    )
+                    attachChannel(secure)
+                    return@thread
+                } catch (error: Exception) {
+                    failures += "${endpoint.host}: ${error.message ?: "connection failed"}"
+                }
             }
+            reportError("No direct endpoint could be reached. Tried ${candidates.size} address(es). ${failures.take(3).joinToString("; ")}")
         }
     }
 
