@@ -1,20 +1,19 @@
 # Pairing
 
-Milestone 1 foundation: Android Keystore device identity, signed and expiring invitation QR payloads, invitation-bound signed response payloads, fingerprint calculation and QR bitmap rendering.
+Milestone 1 foundation: Android Keystore device identity, signed and expiring invitation QR payloads, invitation-bound signed response payloads, exact fingerprint confirmation, QR bitmap rendering and encrypted peer-state persistence.
 
-## Flow
-1. Device A creates a five-minute invitation. Its P-256 private signing key remains in Android Keystore.
-2. Device B imports/scans the invitation, validates its expiry and signature, and displays A's SHA-256 public-key fingerprint.
-3. The user on B explicitly confirms that fingerprint, then B creates a signed response bound to the invitation digest.
-4. Device A imports/scans the response, validates its signature and binding, and displays B's fingerprint.
-5. The user on A explicitly confirms B. The returned PinnedPeer can then be persisted by the app's peer store.
+## Implemented building blocks
+- P-256 ECDSA identity signing via Android Keystore.
+- Versioned invitation and response JSON envelopes with canonical length-prefixed signature transcripts.
+- Invitation expiry bounded to 1–10 minutes (default five minutes).
+- SHA-256 public-key fingerprints.
+- API gates require the exact displayed fingerprint string to match the scanned public key before response creation or peer acceptance.
+- AES-256-GCM encrypted SharedPreferences state using an Android Keystore key.
+- One-peer pin slot and a bounded consumed-invitation ID ledger. A different peer cannot replace an existing peer without explicit revocation.
 
-The QR payload is bootstrap data only. It contains no network address and does not provide rendezvous, discovery, NAT traversal or connectivity. QR scanning/import UI, encrypted peer-record persistence, durable single-use/replay tracking, revocation UX and physical-device acceptance tests remain to be completed. Do not mark a peer trusted before the corresponding user confirmation.
+## Remaining integration
+The app currently displays its invitation QR. Camera scanning/import UI, reciprocal confirmation screens, the complete responder/inviter state machine, integration of EncryptedPairingStore into that flow, revoke/re-pair UX and physical-device acceptance tests remain open.
 
-## Security notes
-- ECDSA P-256 / SHA-256 identity signatures via Android Keystore.
-- Public keys use X.509 SubjectPublicKeyInfo encoding.
-- Canonical length-prefixed binary fields are signed; JSON is only the QR envelope.
-- Invitation lifetime is bounded to 1–10 minutes (default five minutes).
-- Responses are cryptographically bound to the exact invitation.
-- This is an initial implementation, not an independent cryptographic audit.
+QR payloads contain no network address and do not provide rendezvous, discovery, NAT traversal or connectivity. Pairing does not imply that a direct network path exists.
+
+This is an initial implementation, not an independent cryptographic audit.
