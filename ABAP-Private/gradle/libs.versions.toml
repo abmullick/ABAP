@@ -7,6 +7,7 @@ lifecycle = "2.8.7"
 composeBom = "2025.03.00"
 cameraX = "1.4.2"
 junit = "4.13.2"
+concentus = "1.0.2"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -25,6 +26,7 @@ androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", versi
 androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "cameraX" }
 zxing-core = { module = "com.google.zxing:core", version = "3.5.3" }
 junit = { module = "junit:junit", version.ref = "junit" }
+concentus = { module = "io.github.jaredmdobson:concentus", version.ref = "concentus" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
