@@ -27,31 +27,37 @@
 **Exit:** two physical devices pair and mutually authenticate; an unrelated third device is rejected. UI and storage integration are implemented, but this exit criterion remains pending until automated and physical-device tests pass.
 
 ## Milestone 2: Direct encrypted connectivity proof
-- [ ] Implement network/interface discovery.
+- [x] Implement a direct TCP listener and manual host/port connection (port 47831).
+- [x] Authenticate both peers against their QR-pinned public identity keys.
+- [x] Use ephemeral P-256 ECDH, signed handshake transcript, HKDF-SHA256 and directional AES-256-GCM keys.
+- [x] Add bounded encrypted frames, per-direction counters and replay/out-of-order rejection.
+- [x] Add unit tests for peer authentication and encrypted bidirectional frames.
+- [ ] Replace or independently review the initial custom handshake; evaluate a maintained Noise implementation before production.
+- [ ] Implement network/interface discovery and endpoint sharing.
 - [ ] Enumerate global IPv6 candidates and configured IPv4 endpoints.
-- [ ] Implement direct UDP sockets.
-- [ ] Integrate vetted Noise handshake and pinned peer authentication.
-- [ ] Add packet framing, counters, replay rejection and diagnostics.
-- [ ] Test IPv6, configured IPv4, Wi-Fi and mobile combinations.
+- [ ] Evaluate direct UDP and best-effort NAT traversal without any rendezvous/relay.
+- [ ] Test IPv6, configured IPv4, Wi-Fi and mobile combinations on two physical devices.
 
-**Exit:** two physical devices establish direct authenticated encrypted connectivity on documented supported networks, with packet capture evidence and no server/relay traffic.
+**Exit:** two physical devices establish authenticated encrypted connectivity on documented supported networks, with packet capture evidence and no server/relay traffic. This exit criterion remains pending physical-device testing.
 
 ## Milestone 3: Reliable messaging
-- Implement versioned message schema.
-- Add message IDs, sequence tracking and acknowledgements.
-- Add bounded sender-side queue and retry.
-- Add encrypted local persistence.
-- Add duplicate suppression and reconnect reconciliation.
-- Implement expiry and cleanup.
+- [x] Add direct encrypted text frames.
+- [x] Add encrypted local message history, bounded to 2,000 entries.
+- [ ] Implement versioned message envelope, message IDs and sequence tracking.
+- [ ] Add delivery/read acknowledgements.
+- [ ] Add bounded sender-side offline queue and retry.
+- [ ] Add duplicate suppression and reconnect reconciliation.
+- [ ] Implement message expiry and cleanup.
 
 **Exit:** text delivery, acknowledgement, offline queueing, reconnection and expiry tests pass.
 
 ## Milestone 4: Voice calling
-- Implement AudioRecord/AudioTrack pipeline.
-- Integrate libopus.
-- Add encrypted real-time voice channel.
-- Add jitter buffer, loss concealment and adaptive bitrate.
-- Add call state machine, mute, speaker, audio focus and Bluetooth routing.
+- [x] Add initial AudioRecord/AudioTrack PCM capture and playback.
+- [x] Add encrypted call request, accept, reject and end control frames.
+- [ ] Integrate libopus.
+- [ ] Move voice to a low-latency datagram channel with jitter buffer, loss concealment and adaptive bitrate.
+- [ ] Add call state machine, mute, speaker, audio focus and Bluetooth routing.
+- [ ] Add foreground call service so calls can survive normal backgrounding.
 
 **Exit:** stable two-way calls on supported paths; measure latency, packet loss and battery use on real devices.
 
