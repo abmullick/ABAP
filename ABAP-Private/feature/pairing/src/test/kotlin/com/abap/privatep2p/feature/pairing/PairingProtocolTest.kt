@@ -59,7 +59,7 @@ class PairingProtocolTest {
     fun rejectsExpiredInvitation() {
         val identity = softwareIdentity()
         val creator = PairingCoordinator({ identity }, { now })
-        val invitation = creator.createInvitation("Phone A")
+        val invitation = creator.createInvitation("Phone A", lifetimeSeconds = 300)
         val later = PairingCoordinator({ identity }, { now + 301 })
 
         assertThrows(IllegalArgumentException::class.java) {
