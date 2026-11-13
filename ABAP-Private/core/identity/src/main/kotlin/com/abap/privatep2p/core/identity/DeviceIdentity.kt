@@ -34,9 +34,10 @@ class AndroidDeviceIdentityStore(private val alias: String = DEFAULT_ALIAS) {
             )
             generator.generateKeyPair()
         }
-        val publicKey = keyStore.getCertificate(alias)?.publicKey
+        val refreshedKeyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
+        val publicKey = refreshedKeyStore.getCertificate(alias)?.publicKey
             ?: error("Device identity certificate is missing")
-        val privateKey = keyStore.getKey(alias, null) as? java.security.PrivateKey
+        val privateKey = refreshedKeyStore.getKey(alias, null) as? java.security.PrivateKey
             ?: error("Device identity private key is missing")
         val encoded = publicKey.encoded.copyOf()
         return DeviceIdentity(encoded, fingerprint(encoded)) { message ->
@@ -62,7 +63,7 @@ class AndroidDeviceIdentityStore(private val alias: String = DEFAULT_ALIAS) {
 
         fun fingerprint(publicKeyEncoded: ByteArray): String =
             MessageDigest.getInstance("SHA-256").digest(publicKeyEncoded)
-                .joinToString(":") { "%02X".format(it) }
+                .joinToString(":") { "%02X".format(it.toInt() and 0xFF) }
 
         fun verify(publicKeyEncoded: ByteArray, message: ByteArray, signatureBytes: ByteArray): Boolean =
             runCatching {
