@@ -21,4 +21,5 @@ dependencies {
     implementation(project(":core:identity"))
     implementation("com.google.zxing:core:3.5.3")
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
 }
