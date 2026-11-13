@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.net.nsd.NsdManager
+import android.net.nsd.NsdServiceInfo
 import android.content.pm.PackageManager
 import android.os.Binder
 import android.os.Build
@@ -34,6 +36,8 @@ class PeerConnectionService : Service() {
         fun onIncomingCall() {}
         fun onCallStatus(status: String, active: Boolean, incoming: Boolean) {}
         fun onError(message: String) {}
+        fun onEndpointDiscovered(name: String, host: String, port: Int) {}
+        fun onEndpointLost(name: String) {}
     }
 
     inner class LocalBinder : Binder() {
@@ -49,12 +53,19 @@ class PeerConnectionService : Service() {
         fun rejectCall() = this@PeerConnectionService.rejectCall()
         fun endCall() = this@PeerConnectionService.endCall()
         fun stopConnection() = this@PeerConnectionService.stopConnection()
+        fun discoverPeers() = this@PeerConnectionService.startDiscovery()
+        fun stopPeerDiscovery() = this@PeerConnectionService.stopDiscovery()
+        fun connectTo(host: String) = this@PeerConnectionService.connect(host)
     }
 
     private val binder = LocalBinder()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val identityStore by lazy { AndroidDeviceIdentityStore() }
     private val pairingStore by lazy { EncryptedPairingStore(this) }
+    private val nsdManager by lazy { getSystemService(NsdManager::class.java) }
+    private var nsdRegistration: NsdManager.RegistrationListener? = null
+    private var nsdDiscovery: NsdManager.DiscoveryListener? = null
+    @Volatile private var advertisedServiceName: String? = null
 
     @Volatile private var listener: Listener? = null
     @Volatile private var connectionStatus = "Not connected"
@@ -125,10 +136,107 @@ class PeerConnectionService : Service() {
                 onConnected = ::attachChannel,
                 onError = { error -> reportError(error.message ?: "Incoming connection failed") }
             ).also { it.start() }
-            updateStatus("Listening on TCP port $TCP_PORT. A reachable peer endpoint is required.", false)
+            startAdvertisement()
+            updateStatus("Listening on TCP port $TCP_PORT. LAN discovery is available; internet peers need a reachable endpoint.", false)
         } catch (error: Exception) {
             reportError(error.message ?: "Could not start the peer listener")
         }
+    }
+
+    private fun startAdvertisement() {
+        if (nsdRegistration != null) return
+        val fingerprint = runCatching { identityStore.getOrCreate().fingerprint.take(8) }.getOrDefault("device")
+        val info = NsdServiceInfo().apply {
+            serviceName = "ABAPPrivate-$fingerprint"
+            serviceType = NSD_SERVICE_TYPE
+            port = TCP_PORT
+        }
+        val registration = object : NsdManager.RegistrationListener {
+            override fun onServiceRegistered(serviceInfo: NsdServiceInfo) {
+                advertisedServiceName = serviceInfo.serviceName
+            }
+            override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                nsdRegistration = null
+                reportError("Local network advertisement failed (NSD $errorCode)")
+            }
+            override fun onServiceUnregistered(serviceInfo: NsdServiceInfo) {
+                advertisedServiceName = null
+            }
+            override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                reportError("Could not stop local network advertisement (NSD $errorCode)")
+            }
+        }
+        nsdRegistration = registration
+        runCatching {
+            nsdManager.registerService(info, NsdManager.PROTOCOL_DNS_SD, registration)
+        }.onFailure {
+            nsdRegistration = null
+            reportError("Local network advertisement unavailable: ${it.message}")
+        }
+    }
+
+    private fun startDiscovery() {
+        if (nsdDiscovery != null) return
+        val discovery = object : NsdManager.DiscoveryListener {
+            override fun onDiscoveryStarted(serviceType: String) {
+                updateStatus("Searching for paired ABAP Private devices on this local network…", channel != null)
+            }
+            override fun onServiceFound(serviceInfo: NsdServiceInfo) {
+                if (serviceInfo.serviceName == advertisedServiceName ||
+                    !serviceInfo.serviceType.startsWith(NSD_SERVICE_PREFIX)) return
+                runCatching {
+                    nsdManager.resolveService(serviceInfo, object : NsdManager.ResolveListener {
+                        override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) {
+                            reportError("Could not resolve local peer ${info.serviceName} (NSD $errorCode)")
+                        }
+                        override fun onServiceResolved(info: NsdServiceInfo) {
+                            val host = info.host?.hostAddress?.substringBefore('%') ?: return
+                            if (info.port == TCP_PORT) {
+                                mainHandler.post {
+                                    listener?.onEndpointDiscovered(info.serviceName, host, info.port)
+                                }
+                            }
+                        }
+                    })
+                }.onFailure { reportError("Local peer resolution failed: ${it.message}") }
+            }
+            override fun onServiceLost(serviceInfo: NsdServiceInfo) {
+                mainHandler.post { listener?.onEndpointLost(serviceInfo.serviceName) }
+            }
+            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+                runCatching { nsdManager.stopServiceDiscovery(this) }
+                nsdDiscovery = null
+                reportError("Local peer discovery failed (NSD $errorCode)")
+            }
+            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
+                reportError("Could not stop local peer discovery (NSD $errorCode)")
+            }
+            override fun onDiscoveryStopped(serviceType: String) {
+                nsdDiscovery = null
+            }
+        }
+        nsdDiscovery = discovery
+        runCatching {
+            nsdManager.discoverServices(NSD_SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discovery)
+        }.onFailure {
+            nsdDiscovery = null
+            reportError("Local peer discovery unavailable: ${it.message}")
+        }
+    }
+
+    private fun stopDiscovery() {
+        nsdDiscovery?.let { discovery ->
+            runCatching { nsdManager.stopServiceDiscovery(discovery) }
+        }
+        nsdDiscovery = null
+    }
+
+    private fun stopAdvertisement() {
+        nsdRegistration?.let { registration ->
+            runCatching { nsdManager.unregisterService(registration) }
+        }
+        nsdRegistration = null
+        advertisedServiceName = null
     }
 
     private fun connect(host: String) {
@@ -308,6 +416,8 @@ class PeerConnectionService : Service() {
     }
 
     private fun stopConnection() {
+        stopDiscovery()
+        stopAdvertisement()
         peerListener?.close()
         peerListener = null
         channel?.close()
@@ -377,6 +487,8 @@ class PeerConnectionService : Service() {
         const val TCP_PORT = 47831
         private const val MAX_MESSAGE_CHARS = 16_384
         private const val CHANNEL_ID = "abap_private_peer"
+        private const val NSD_SERVICE_TYPE = "_abap-private._tcp."
+        private const val NSD_SERVICE_PREFIX = "_abap-private._tcp"
         private const val NOTIFICATION_ID = 47831
     }
 }
