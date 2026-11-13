@@ -101,10 +101,9 @@ class PairingCoordinator(
         )
     }
 
-    fun verifyResponse(
+    fun inspectResponse(
         invitation: PairingInvitation,
-        response: PairingResponse,
-        confirmedPeerFingerprint: String
+        response: PairingResponse
     ): PinnedPeer {
         requireValidInvitation(invitation, clockSeconds())
         require(response.invitationId == invitation.invitationId) { "Response belongs to another invitation" }
@@ -125,13 +124,24 @@ class PairingCoordinator(
             )
         ) { "Invalid responder signature" }
 
-        val actualFingerprint = AndroidDeviceIdentityStore.fingerprint(response.publicKey)
-        require(confirmedPeerFingerprint == actualFingerprint) {
+        return PinnedPeer(
+            response.displayName,
+            response.publicKey.copyOf(),
+            AndroidDeviceIdentityStore.fingerprint(response.publicKey),
+            clockSeconds()
+        )
+    }
+
+    fun verifyResponse(
+        invitation: PairingInvitation,
+        response: PairingResponse,
+        confirmedPeerFingerprint: String
+    ): PinnedPeer {
+        val peer = inspectResponse(invitation, response)
+        require(confirmedPeerFingerprint == peer.fingerprint) {
             "The confirmed peer fingerprint does not match this response"
         }
-        return PinnedPeer(
-            response.displayName, response.publicKey.copyOf(), actualFingerprint, clockSeconds()
-        )
+        return peer
     }
 
     fun encodeInvitation(invitation: PairingInvitation): String = JSONObject()
