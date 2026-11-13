@@ -58,7 +58,6 @@ class DirectSecureChannel private constructor(
         }
     }
 
-    @Synchronized
     fun receive(): SecureFrame {
         val type = input.readUnsignedByte()
         val counter = input.readLong()
@@ -149,7 +148,7 @@ class DirectSecureChannel private constructor(
             output.flush()
 
             val serverEphemeral = readBlob(input, 256)
-            val serverNonce = readBlob(input, NONCE_BYTES)
+            val serverNonce = readBlob(input, NONCE_BYTES).also { require(it.size == NONCE_BYTES) }
             val serverSignature = readBlob(input, 256)
             val transcript = transcript(clientEphemeral, clientNonce, serverEphemeral, serverNonce,
                 identity.publicKeyEncoded, peerPublicKey)
@@ -171,7 +170,7 @@ class DirectSecureChannel private constructor(
             val input = DataInputStream(socket.getInputStream())
             val output = DataOutputStream(socket.getOutputStream())
             val clientEphemeral = readBlob(input, 256)
-            val clientNonce = readBlob(input, NONCE_BYTES)
+            val clientNonce = readBlob(input, NONCE_BYTES).also { require(it.size == NONCE_BYTES) }
             val clientSignature = readBlob(input, 256)
             val clientSigned = signedBytes(LABEL_CLIENT, clientEphemeral, clientNonce, peerPublicKey)
             check(AndroidDeviceIdentityStore.verify(peerPublicKey, clientSigned, clientSignature)) {
