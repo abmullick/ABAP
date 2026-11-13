@@ -17,6 +17,13 @@ data class PendingPairingResponse(
     val encodedPayload: String
 )
 
+data class StoredChatMessage(
+    val id: String,
+    val outgoing: Boolean,
+    val body: String,
+    val timestampEpochMillis: Long
+)
+
 /**
  * Stores exactly one pinned peer and a bounded set of consumed invitation IDs.
  * The complete record is AES-256-GCM encrypted with a key held in Android Keystore.
@@ -68,6 +75,33 @@ class EncryptedPairingStore(
             pending.getString("invitationId"),
             pending.getString("payload")
         )
+    }
+
+    @Synchronized
+    fun loadMessages(): List<StoredChatMessage> {
+        val messages = readState().optJSONArray("messages") ?: return emptyList()
+        return buildList {
+            for (index in 0 until messages.length()) {
+                val item = messages.optJSONObject(index) ?: continue
+                add(StoredChatMessage(item.optString("id"), item.optBoolean("outgoing"),
+                    item.optString("body"), item.optLong("timestamp")))
+            }
+        }
+    }
+
+    @Synchronized
+    fun appendMessage(message: StoredChatMessage) {
+        require(message.body.isNotBlank() && message.body.length <= MAX_MESSAGE_CHARS)
+        val state = readState()
+        val messages = state.optJSONArray("messages") ?: JSONArray()
+        messages.put(JSONObject()
+            .put("id", message.id)
+            .put("outgoing", message.outgoing)
+            .put("body", message.body)
+            .put("timestamp", message.timestampEpochMillis))
+        while (messages.length() > MAX_STORED_MESSAGES) messages.remove(0)
+        state.put("messages", messages)
+        writeState(state)
     }
 
     @Synchronized
@@ -205,6 +239,8 @@ class EncryptedPairingStore(
         private const val MAX_PUBLIC_KEY_BYTES = 512
         private const val MAX_DISPLAY_NAME_CHARS = 48
         private const val MAX_PENDING_RESPONSE_CHARS = 8_192
+        private const val MAX_MESSAGE_CHARS = 16_384
+        private const val MAX_STORED_MESSAGES = 2_000
         private val ASSOCIATED_DATA = "ABAP_PRIVATE_PAIRING_STATE_V1".toByteArray(Charsets.UTF_8)
     }
 }
