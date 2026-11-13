@@ -37,7 +37,9 @@ The first end-to-end local QR pairing workflow is now implemented:
 - AES-256-GCM encrypted single-peer persistence, consumed-invitation tracking and encrypted persistence of the active invitation and responder's pending response.
 - Existing peer trust is restored at startup; ordinary app restarts and network changes do not request pairing again. The saved response remains available for export after restart.
 - Pairing reset is intentionally not exposed as a routine in-app action; clearing app data removes the local pairing record.
-- Direct TCP listener and manual internet peer endpoint connection on port 47831.
+- Direct TCP listener and outgoing endpoint connection on port 47831.
+- Signed, expiring direct-endpoint QR codes for exchanging address candidates between already-paired devices; QR signatures are verified against the existing pinned identity, so endpoint changes do not require pairing again.
+- Imported endpoint candidates are tried sequentially using authenticated direct TCP; the first valid pinned-peer connection wins.
 - Local IPv4/IPv6 interface address enumeration without an external IP lookup service.
 - Android NSD advertisement and one-tap discovery of ABAP Private listeners on the same LAN/Wi-Fi.
 - Pinned-peer authentication using ephemeral P-256 ECDH, a signed transcript and HKDF-derived directional AES-256-GCM keys.
