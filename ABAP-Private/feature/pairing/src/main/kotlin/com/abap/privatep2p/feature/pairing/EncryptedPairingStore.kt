@@ -12,6 +12,11 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+data class PendingPairingResponse(
+    val invitationId: String,
+    val encodedPayload: String
+)
+
 /**
  * Stores exactly one pinned peer and a bounded set of consumed invitation IDs.
  * The complete record is AES-256-GCM encrypted with a key held in Android Keystore.
