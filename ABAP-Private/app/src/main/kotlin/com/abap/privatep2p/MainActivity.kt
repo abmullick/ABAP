@@ -1,7 +1,12 @@
 package com.abap.privatep2p
 
 import android.Manifest
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.os.IBinder
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
@@ -27,12 +32,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.DisposableEffect
-import com.abap.privatep2p.core.network.DirectPeerListener
-import com.abap.privatep2p.core.network.DirectSecureChannel
+import com.abap.privatep2p.core.network.LocalEndpointAddress
+import com.abap.privatep2p.core.network.LocalEndpointDiscovery
 import com.abap.privatep2p.feature.pairing.StoredChatMessage
-import com.abap.privatep2p.service.audio.AudioCallSession
-import kotlinx.coroutines.isActive
-import java.util.UUID
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -105,13 +107,15 @@ private fun ABAPPrivateApp() {
     var pinnedPeer by remember { mutableStateOf<PinnedPeer?>(null) }
     var remoteAddress by remember { mutableStateOf("") }
     var connectionStatus by remember { mutableStateOf("Not connected") }
-    var peerChannel by remember { mutableStateOf<DirectSecureChannel?>(null) }
-    var directListener by remember { mutableStateOf<DirectPeerListener?>(null) }
+    var peerService by remember { mutableStateOf<PeerConnectionService.LocalBinder?>(null) }
+    var serviceStarted by remember { mutableStateOf(false) }
+    var peerConnected by remember { mutableStateOf(false) }
     var messageDraft by remember { mutableStateOf("") }
     var chatMessages by remember { mutableStateOf<List<StoredChatMessage>>(emptyList()) }
-    var voiceSession by remember { mutableStateOf<AudioCallSession?>(null) }
+    var callActive by remember { mutableStateOf(false) }
     var callStatus by remember { mutableStateOf("No active call") }
     var incomingCall by remember { mutableStateOf(false) }
+    var localEndpoints by remember { mutableStateOf<List<LocalEndpointAddress>>(emptyList()) }
     var microphonePermissionGranted by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }
@@ -152,159 +156,114 @@ private fun ABAPPrivateApp() {
         }
     }
 
-    fun startAudioSession() {
-        val channel = peerChannel ?: error("There is no secure peer connection")
-        val session = AudioCallSession(channel) { failure ->
-            scope.launch(Dispatchers.Main) { callStatus = "Audio error: ${failure.message}" }
-        }
-        session.start()
-        voiceSession = session
-        callStatus = "Voice call active"
-    }
-
-    fun attachChannel(channel: DirectSecureChannel) {
-        peerChannel?.close()
-        peerChannel = channel
-        connectionStatus = "Secure connection established and peer authenticated"
-        scope.launch(Dispatchers.IO) {
-            try {
-                while (isActive) {
-                    val frame = channel.receive()
-                    when (frame.type) {
-                        DirectSecureChannel.TYPE_TEXT -> {
-                            val body = String(frame.payload, Charsets.UTF_8)
-                            if (body.isNotBlank() && body.length <= 16_384) {
-                                withContext(Dispatchers.Main) {
-                                    val item = StoredChatMessage(UUID.randomUUID().toString(), false, body, System.currentTimeMillis())
-                                    pairingStore.appendMessage(item)
-                                    chatMessages = chatMessages + item
-                                }
-                            }
-                        }
-                        DirectSecureChannel.TYPE_AUDIO -> voiceSession?.playIncoming(frame.payload)
-                        DirectSecureChannel.TYPE_CALL_REQUEST -> withContext(Dispatchers.Main) {
-                            incomingCall = true
-                            callStatus = "Incoming voice call"
-                        }
-                        DirectSecureChannel.TYPE_CALL_ACCEPT -> withContext(Dispatchers.Main) {
-                            incomingCall = false
-                            runCatching { startAudioSession() }
-                                .onFailure { callStatus = "Could not start call: ${it.message}" }
-                        }
-                        DirectSecureChannel.TYPE_CALL_REJECT -> withContext(Dispatchers.Main) {
-                            incomingCall = false
-                            callStatus = "Peer declined the call"
-                        }
-                        DirectSecureChannel.TYPE_CALL_END -> withContext(Dispatchers.Main) {
-                            voiceSession?.close()
-                            voiceSession = null
-                            incomingCall = false
-                            callStatus = "Call ended by peer"
-                        }
-                    }
-                }
-            } catch (failure: Throwable) {
-                withContext(Dispatchers.Main) {
-                    connectionStatus = "Disconnected: ${failure.message ?: "connection closed"}"
-                    peerChannel = null
-                    voiceSession?.close()
-                    voiceSession = null
-                    incomingCall = false
-                    callStatus = "No active call"
-                }
+    val serviceListener = remember {
+        object : PeerConnectionService.Listener {
+            override fun onStatus(status: String, connected: Boolean) {
+                connectionStatus = status
+                peerConnected = connected
+            }
+            override fun onMessage(message: StoredChatMessage) {
+                chatMessages = (chatMessages + message).takeLast(2_000)
+            }
+            override fun onIncomingCall() {
+                incomingCall = true
+            }
+            override fun onCallStatus(status: String, active: Boolean, incoming: Boolean) {
+                callStatus = status
+                callActive = active
+                incomingCall = incoming
+            }
+            override fun onError(message: String) {
+                errorMessage = message
             }
         }
+    }
+
+    DisposableEffect(serviceStarted) {
+        if (!serviceStarted) {
+            onDispose { }
+        } else {
+            val connection = object : ServiceConnection {
+                override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                    val local = binder as? PeerConnectionService.LocalBinder
+                    peerService = local
+                    local?.setListener(serviceListener)
+                }
+                override fun onServiceDisconnected(name: ComponentName?) {
+                    peerService?.setListener(null)
+                    peerService = null
+                    peerConnected = false
+                }
+            }
+            val bound = context.bindService(
+                Intent(context, PeerConnectionService::class.java),
+                connection,
+                Context.BIND_AUTO_CREATE
+            )
+            onDispose {
+                if (bound) context.unbindService(connection)
+                peerService?.setListener(null)
+                peerService = null
+            }
+        }
+    }
+
+    LaunchedEffect(initialized) {
+        if (initialized) {
+            localEndpoints = withContext(Dispatchers.IO) { LocalEndpointDiscovery.discover() }
+        }
+    }
+
+    fun startPeerService(action: String, host: String? = null) {
+        val intent = Intent(context, PeerConnectionService::class.java).setAction(action)
+        if (host != null) intent.putExtra(PeerConnectionService.EXTRA_HOST, host)
+        ContextCompat.startForegroundService(context, intent)
+        serviceStarted = true
+        connectionStatus = "Starting foreground peer service…"
     }
 
     fun startDirectListener() {
-        val peer = pinnedPeer ?: error("Pair a device first")
-        if (directListener != null) {
-            connectionStatus = "Already listening on TCP port 47831"
-            return
-        }
-        val listener = DirectPeerListener(
-            47831,
-            identityStore.getOrCreate(),
-            peer.publicKey,
-            onConnected = { channel -> scope.launch(Dispatchers.Main) { attachChannel(channel) } },
-            onError = { failure -> scope.launch(Dispatchers.Main) {
-                connectionStatus = "Listener error: ${failure.message}"
-            } }
-        )
-        listener.start()
-        directListener = listener
-        connectionStatus = "Listening on TCP port 47831. Peer needs a reachable IP/IPv6 address or port-forwarded IPv4."
+        startPeerService(PeerConnectionService.ACTION_LISTEN)
     }
 
     fun connectToPeer() {
-        val peer = pinnedPeer ?: error("Pair a device first")
         val host = remoteAddress.trim()
-        require(host.isNotBlank()) { "Enter the peer's reachable IP address or hostname" }
-        runTask {
-            val channel = withContext(Dispatchers.IO) {
-                DirectSecureChannel.connect(host, 47831, identityStore.getOrCreate(), peer.publicKey)
-            }
-            attachChannel(channel)
+        if (host.isBlank()) {
+            errorMessage = "Enter the peer's reachable IP address or hostname"
+            return
         }
+        startPeerService(PeerConnectionService.ACTION_CONNECT, host)
     }
 
     fun sendChatMessage() {
-        val channel = peerChannel ?: run { errorMessage = "Connect to your peer first"; return }
         val body = messageDraft.trim()
         if (body.isEmpty()) return
-        runTask {
-            withContext(Dispatchers.IO) { channel.send(DirectSecureChannel.TYPE_TEXT, body.toByteArray(Charsets.UTF_8)) }
-            val item = StoredChatMessage(UUID.randomUUID().toString(), true, body, System.currentTimeMillis())
-            withContext(Dispatchers.IO) { pairingStore.appendMessage(item) }
-            chatMessages = chatMessages + item
-            messageDraft = ""
+        val service = peerService ?: run {
+            errorMessage = "Peer service is not ready. Start the connection first."
+            return
         }
+        service.sendMessage(body)
+        messageDraft = ""
     }
 
     fun requestVoiceCall() {
-        val channel = peerChannel ?: run { errorMessage = "Connect to your peer first"; return }
-        runTask {
-            withContext(Dispatchers.IO) { channel.send(DirectSecureChannel.TYPE_CALL_REQUEST, byteArrayOf()) }
-            callStatus = "Calling peer…"
-        }
+        val service = peerService ?: run { errorMessage = "Peer service is not ready"; return }
+        service.requestCall()
     }
 
     fun acceptVoiceCall() {
-        val channel = peerChannel ?: return
-        runTask {
-            withContext(Dispatchers.IO) { channel.send(DirectSecureChannel.TYPE_CALL_ACCEPT, byteArrayOf()) }
-            incomingCall = false
-            startAudioSession()
-        }
+        val service = peerService ?: run { errorMessage = "Peer service is not ready"; return }
+        service.acceptCall()
     }
 
     fun rejectVoiceCall() {
-        val channel = peerChannel ?: return
-        runTask {
-            withContext(Dispatchers.IO) { channel.send(DirectSecureChannel.TYPE_CALL_REJECT, byteArrayOf()) }
-            incomingCall = false
-            callStatus = "Call rejected"
-        }
+        peerService?.rejectCall()
+        incomingCall = false
     }
 
     fun endVoiceCall() {
-        val channel = peerChannel
-        runTask {
-            if (channel != null) withContext(Dispatchers.IO) {
-                channel.send(DirectSecureChannel.TYPE_CALL_END, byteArrayOf())
-            }
-            voiceSession?.close()
-            voiceSession = null
-            callStatus = "Call ended"
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            directListener?.close()
-            voiceSession?.close()
-            peerChannel?.close()
-        }
+        peerService?.endCall()
+        callActive = false
     }
 
     fun deviceName(): String =
@@ -586,16 +545,43 @@ private fun ABAPPrivateApp() {
                                     singleLine = true
                                 )
                                 Button(
-                                    onClick = { runTask { withContext(Dispatchers.IO) { startDirectListener() } } },
+                                    onClick = { runCatching { startDirectListener() }.onFailure { errorMessage = it.message } },
                                     modifier = Modifier.fillMaxWidth(),
-                                    enabled = !busy && directListener == null
-                                ) { Text("Listen on port 47831") }
+                                    enabled = !busy
+                                ) { Text("Start foreground listener · TCP 47831") }
                                 Button(
                                     onClick = ::connectToPeer,
                                     modifier = Modifier.fillMaxWidth(),
-                                    enabled = !busy && peerChannel == null && remoteAddress.isNotBlank()
+                                    enabled = !busy && !peerConnected && remoteAddress.isNotBlank()
                                 ) { Text("Connect securely to peer") }
+                                if (serviceStarted) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            peerService?.stopConnection()
+                                            serviceStarted = false
+                                            peerConnected = false
+                                            callActive = false
+                                            connectionStatus = "Connection stopped"
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text("Stop peer service") }
+                                }
                                 Text(connectionStatus, style = MaterialTheme.typography.bodySmall)
+                                Text("This phone's network addresses", style = MaterialTheme.typography.titleSmall)
+                                if (localEndpoints.isEmpty()) {
+                                    Text("No non-loopback addresses found. Check the network connection.", style = MaterialTheme.typography.bodySmall)
+                                } else {
+                                    localEndpoints.forEach { endpoint ->
+                                        Text(
+                                            "${endpoint.address} · ${endpoint.scope.name.lowercase().replace('_', ' ')}",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                                Text(
+                                    "Private LAN addresses work only on the same reachable network. A global IPv6 address may be reachable if firewalls allow it. Public IPv4 usually needs router port forwarding for TCP 47831. This app does not query an external IP service.",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
                                 Spacer(Modifier.height(8.dp))
                                 Text("Private messages", style = MaterialTheme.typography.titleLarge)
                                 chatMessages.takeLast(100).forEach { message ->
@@ -614,7 +600,7 @@ private fun ABAPPrivateApp() {
                                 Button(
                                     onClick = ::sendChatMessage,
                                     modifier = Modifier.fillMaxWidth(),
-                                    enabled = peerChannel != null && messageDraft.isNotBlank() && !busy
+                                    enabled = peerConnected && peerService != null && messageDraft.isNotBlank() && !busy
                                 ) { Text("Send message") }
                                 Spacer(Modifier.height(8.dp))
                                 Text("Voice calling", style = MaterialTheme.typography.titleLarge)
@@ -631,14 +617,14 @@ private fun ABAPPrivateApp() {
                                         onClick = ::rejectVoiceCall,
                                         modifier = Modifier.fillMaxWidth()
                                     ) { Text("Decline call") }
-                                } else if (voiceSession == null) {
+                                } else if (!callActive) {
                                     Button(
                                         onClick = {
                                             if (microphonePermissionGranted) requestVoiceCall()
                                             else microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                         },
                                         modifier = Modifier.fillMaxWidth(),
-                                        enabled = peerChannel != null && !busy
+                                        enabled = peerConnected && peerService != null && !busy
                                     ) { Text("Call peer") }
                                 } else {
                                     Button(
