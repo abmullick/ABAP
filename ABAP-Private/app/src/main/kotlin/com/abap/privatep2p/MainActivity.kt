@@ -124,34 +124,6 @@ private fun ABAPPrivateApp() {
         }
     }
 
-    val invitationExportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("image/png")
-    ) { uri ->
-        val bitmap = invitationQr
-        if (uri != null && bitmap != null) runTask {
-            withContext(Dispatchers.IO) { saveQrPng(context, uri, bitmap) }
-            statusMessage = "Invitation QR image saved. Share it using your preferred messaging or email app."
-        }
-    }
-    val responseExportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("image/png")
-    ) { uri ->
-        val bitmap = responseQr
-        if (uri != null && bitmap != null) runTask {
-            withContext(Dispatchers.IO) { saveQrPng(context, uri, bitmap) }
-            statusMessage = "Response QR image saved. Send it back to the other person."
-        }
-    }
-    val qrImageImportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) runTask {
-            val payload = withContext(Dispatchers.IO) { readQrPayload(context, uri) }
-            screen = importTarget
-            processScannedQr(payload)
-        }
-    }
-
     fun deviceName(): String =
         (Build.MODEL ?: "Android device").trim().take(48).ifBlank { "Android device" }
 
@@ -261,6 +233,34 @@ private fun ABAPPrivateApp() {
         runTask { processScannedQr(payload) }
     }
 
+    val invitationExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("image/png")
+    ) { uri ->
+        val bitmap = invitationQr
+        if (uri != null && bitmap != null) runTask {
+            withContext(Dispatchers.IO) { saveQrPng(context, uri, bitmap) }
+            statusMessage = "Invitation QR image saved. Share it using your preferred messaging or email app."
+        }
+    }
+    val responseExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("image/png")
+    ) { uri ->
+        val bitmap = responseQr
+        if (uri != null && bitmap != null) runTask {
+            withContext(Dispatchers.IO) { saveQrPng(context, uri, bitmap) }
+            statusMessage = "Response QR image saved. Send it back to the other person."
+        }
+    }
+    val qrImageImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) runTask {
+            val payload = withContext(Dispatchers.IO) { readQrPayload(context, uri) }
+            screen = importTarget
+            processScannedQr(payload)
+        }
+    }
+
     fun confirmInviter() {
         val invitation = scannedInvitation ?: return
         val fingerprint = candidatePeer?.fingerprint ?: return
@@ -299,30 +299,6 @@ private fun ABAPPrivateApp() {
             invitationQr = null
             screen = PairingScreen.PAIRED
             statusMessage = "Both device identities have been verified and pinned on this phone."
-        }
-    }
-
-    fun revokeLocalPeer() {
-        runTask {
-            withContext(Dispatchers.IO) { pairingStore.revokePeer() }
-            pinnedPeer = null
-            responsePayload = null
-            responseQr = null
-            activeInvitation = null
-            invitationQr = null
-            val fresh = withContext(Dispatchers.IO) {
-                val invitation = pairing.createInvitation(deviceName())
-                val payload = pairing.encodeInvitation(invitation)
-                Triple(invitation, PairingQrCode.render(payload), invitation.expiresAtEpochSeconds)
-            }
-            pairingStore.saveActiveInvitationPayload(pairing.encodeInvitation(fresh.first))
-            activeInvitation = fresh.first
-            invitationQr = fresh.second
-            invitationExpiry = Instant.ofEpochSecond(fresh.third)
-                .atZone(ZoneId.systemDefault())
-                .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
-            statusMessage = "Local peer trust revoked. The other device is not notified; share a new invitation to pair again."
-            screen = PairingScreen.HOME
         }
     }
 
@@ -416,10 +392,6 @@ private fun ABAPPrivateApp() {
                                         modifier = Modifier.fillMaxWidth()
                                     ) { Text("Show / export saved response QR") }
                                 }
-                                OutlinedButton(
-                                    onClick = { revokeLocalPeer() },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) { Text("Revoke this peer on this device") }
                             }
                         }
 
