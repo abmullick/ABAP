@@ -10,6 +10,10 @@ on:
       - "ABAP-Private/**"
       - ".github/workflows/abap-private-android.yml"
 
+concurrency:
+  group: abap-private-android-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
