@@ -239,7 +239,8 @@ private fun ABAPPrivateApp() {
         val bitmap = invitationQr
         if (uri != null && bitmap != null) runTask {
             withContext(Dispatchers.IO) { saveQrPng(context, uri, bitmap) }
-            statusMessage = "Invitation QR image saved. Share it using your preferred messaging or email app."
+            shareQrImage(context, uri, "Share ABAP Private invitation")
+            statusMessage = "Invitation QR image saved and shared using your selected app."
         }
     }
     val responseExportLauncher = rememberLauncherForActivityResult(
@@ -248,7 +249,8 @@ private fun ABAPPrivateApp() {
         val bitmap = responseQr
         if (uri != null && bitmap != null) runTask {
             withContext(Dispatchers.IO) { saveQrPng(context, uri, bitmap) }
-            statusMessage = "Response QR image saved. Send it back to the other person."
+            shareQrImage(context, uri, "Share ABAP Private response")
+            statusMessage = "Response QR image saved and shared using your selected app."
         }
     }
     val qrImageImportLauncher = rememberLauncherForActivityResult(
@@ -344,7 +346,7 @@ private fun ABAPPrivateApp() {
                                     )
                                 } ?: CircularProgressIndicator()
                                 Text(
-                                    "Show this invitation QR to the second phone. The invitation is signed by this device and expires at ${invitationExpiry ?: "the displayed time"}.",
+                                    "Save and share this signed invitation image with the other person, wherever they are. They can import it from their gallery. It expires at ${invitationExpiry ?: "the displayed time"}.",
                                     style = MaterialTheme.typography.bodySmall
                                 )
                                 Button(
@@ -446,7 +448,7 @@ private fun ABAPPrivateApp() {
                                 )
                             } ?: CircularProgressIndicator()
                             Text(
-                                "The other phone must scan this response QR to finish mutual pairing. This response is saved encrypted on this device so you can return to it later.",
+                                "Save and share this signed response image with the initiating person. They can import it from their gallery. The response is saved encrypted on this device so you can resend it later.",
                                 style = MaterialTheme.typography.bodySmall
                             )
                             OutlinedButton(
