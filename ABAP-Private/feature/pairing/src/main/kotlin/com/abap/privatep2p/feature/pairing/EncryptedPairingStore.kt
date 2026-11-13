@@ -46,6 +46,22 @@ class EncryptedPairingStore(
     }
 
     @Synchronized
+    fun loadActiveInvitationPayload(): String? =
+        readState().optString("activeInvitationPayload").takeIf { it.isNotBlank() }
+
+    @Synchronized
+    fun saveActiveInvitationPayload(payload: String?) {
+        val state = readState()
+        if (payload == null) {
+            state.remove("activeInvitationPayload")
+        } else {
+            require(payload.length <= MAX_PENDING_RESPONSE_CHARS) { "Invitation payload is too large" }
+            state.put("activeInvitationPayload", payload)
+        }
+        writeState(state)
+    }
+
+    @Synchronized
     fun loadPendingResponse(): PendingPairingResponse? {
         val pending = readState().optJSONObject("pendingResponse") ?: return null
         return PendingPairingResponse(
@@ -94,6 +110,7 @@ class EncryptedPairingStore(
             .put("fingerprint", peer.fingerprint)
             .put("pairedAt", peer.pairedAtEpochSeconds)
         )
+        state.remove("activeInvitationPayload")
         if (pendingResponsePayload != null) {
             require(pendingResponsePayload.length <= MAX_PENDING_RESPONSE_CHARS)
             state.put("pendingResponse", JSONObject()
@@ -114,6 +131,7 @@ class EncryptedPairingStore(
         val state = readState()
         state.remove("peer")
         state.remove("pendingResponse")
+        state.remove("activeInvitationPayload")
         writeState(state)
     }
 
