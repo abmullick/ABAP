@@ -3,6 +3,7 @@ package com.abap.privatep2p
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.content.Intent
 import android.net.Uri
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
@@ -50,4 +51,14 @@ fun readQrPayload(context: Context, uri: Uri): String {
     } finally {
         bitmap.recycle()
     }
+}
+
+fun shareQrImage(context: Context, uri: Uri, title: String) {
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "image/png"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        clipData = android.content.ClipData.newUri(context.contentResolver, title, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, title))
 }
