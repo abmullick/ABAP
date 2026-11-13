@@ -32,6 +32,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.DisposableEffect
+import com.abap.privatep2p.core.network.DirectEndpoint
+import com.abap.privatep2p.core.network.EndpointAdvertisementCodec
 import com.abap.privatep2p.core.network.LocalEndpointAddress
 import com.abap.privatep2p.core.network.LocalEndpointDiscovery
 import com.abap.privatep2p.feature.pairing.StoredChatMessage
@@ -79,6 +81,8 @@ private enum class PairingScreen {
     SHOW_RESPONSE,
     SCAN_RESPONSE,
     CONFIRM_RESPONDER,
+    SHOW_ENDPOINT,
+    SCAN_ENDPOINT,
     PAIRED
 }
 
@@ -101,6 +105,10 @@ private fun ABAPPrivateApp() {
     var invitationExpiry by remember { mutableStateOf<String?>(null) }
     var responsePayload by remember { mutableStateOf<String?>(null) }
     var responseQr by remember { mutableStateOf<Bitmap?>(null) }
+    var endpointPayload by remember { mutableStateOf<String?>(null) }
+    var endpointQr by remember { mutableStateOf<Bitmap?>(null) }
+    var localReachableAddress by remember { mutableStateOf("") }
+    var remoteEndpoints by remember { mutableStateOf<List<DirectEndpoint>>(emptyList()) }
     var scannedInvitation by remember { mutableStateOf<PairingInvitation?>(null) }
     var scannedResponse by remember { mutableStateOf<PairingResponse?>(null) }
     var candidatePeer by remember { mutableStateOf<PinnedPeer?>(null) }
@@ -246,6 +254,37 @@ private fun ABAPPrivateApp() {
         }
         startPeerService(PeerConnectionService.ACTION_CONNECT, host)
     }
+    fun createEndpointQr() {
+        runTask {
+            val candidates = buildList {
+                localEndpoints.filter { it.scope != LocalEndpointAddress.Scope.OTHER }.forEach {
+                    add(DirectEndpoint(it.address, PeerConnectionService.TCP_PORT))
+                }
+                localReachableAddress.trim().takeIf { it.isNotBlank() }?.let {
+                    add(DirectEndpoint(it, PeerConnectionService.TCP_PORT))
+                }
+            }.distinctBy { it.host }
+            val payload = withContext(Dispatchers.IO) {
+                EndpointAdvertisementCodec.create(identityStore.getOrCreate(), candidates)
+            }
+            endpointPayload = payload
+            endpointQr = withContext(Dispatchers.Default) { PairingQrCode.render(payload) }
+            screen = PairingScreen.SHOW_ENDPOINT
+            statusMessage = "Signed direct-connection QR ready. It expires in 24 hours."
+        }
+    }
+
+    fun connectToImportedEndpoints() {
+        val service = peerService ?: run {
+            errorMessage = "Start the foreground peer listener first, then connect using the imported endpoint QR."
+            return
+        }
+        if (remoteEndpoints.isEmpty()) {
+            errorMessage = "Import your paired peer's signed endpoint QR first."
+            return
+        }
+        service.connectToEndpoints(remoteEndpoints)
+    }
 
     fun sendChatMessage() {
         val body = messageDraft.trim()
@@ -380,6 +419,17 @@ private fun ABAPPrivateApp() {
                     statusMessage = "Response signature and invitation binding are valid. Verify the fingerprint."
                 }
 
+                PairingScreen.SCAN_ENDPOINT -> {
+                    val peer = pinnedPeer ?: error("Pair a peer before importing a connection QR.")
+                    val advertisement = withContext(Dispatchers.IO) {
+                        EndpointAdvertisementCodec.verify(payload, peer.publicKey)
+                    }
+                    remoteEndpoints = advertisement.endpoints
+                    remoteAddress = advertisement.endpoints.first().host
+                    screen = PairingScreen.HOME
+                    statusMessage = "Verified a signed endpoint QR from your already-paired peer. No new pairing was performed."
+                }
+
                 else -> error("The scanner is not active.")
             }
     }
@@ -406,6 +456,16 @@ private fun ABAPPrivateApp() {
             withContext(Dispatchers.IO) { saveQrPng(context, uri, bitmap) }
             shareQrImage(context, uri, "Share ABAP Private response")
             statusMessage = "Response QR image saved and shared using your selected app."
+        }
+    }
+    val endpointExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("image/png")
+    ) { uri ->
+        val bitmap = endpointQr
+        if (uri != null && bitmap != null) runTask {
+            withContext(Dispatchers.IO) { saveQrPng(context, uri, bitmap) }
+            shareQrImage(context, uri, "Share ABAP Private direct connection")
+            statusMessage = "Signed endpoint QR image saved and shared."
         }
     }
     val qrImageImportLauncher = rememberLauncherForActivityResult(
@@ -546,9 +606,46 @@ private fun ABAPPrivateApp() {
                                 Spacer(Modifier.height(10.dp))
                                 Text("Direct peer connection", style = MaterialTheme.typography.titleLarge)
                                 Text(
-                                    "No central server or relay is used. Start listening on both phones, then connect using the other phone's reachable address. TCP port 47831 must be reachable (global IPv6 or router port forwarding). Carrier-grade NAT may prevent a direct connection.",
+                                    "Messages and calls travel directly between the two phones. No relay, rendezvous, STUN/TURN or central server is used. A signed connection QR exchanges reachable address candidates; it does not bypass CGNAT or firewalls.",
                                     style = MaterialTheme.typography.bodySmall
                                 )
+                                OutlinedTextField(
+                                    value = localReachableAddress,
+                                    onValueChange = { localReachableAddress = it },
+                                    label = { Text("Optional public IP reachable on TCP 47831") },
+                                    supportingText = { Text("Use a public IPv4 only if your router forwards TCP 47831 to this phone, or enter a global IPv6 address. Leave blank to share detected addresses.") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true
+                                )
+                                OutlinedButton(
+                                    onClick = ::createEndpointQr,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = !busy && (localEndpoints.any { it.scope != LocalEndpointAddress.Scope.OTHER } || localReachableAddress.isNotBlank())
+                                ) { Text("Create / share signed connection QR") }
+                                OutlinedButton(
+                                    onClick = {
+                                        screen = PairingScreen.SCAN_ENDPOINT
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("Scan peer's signed connection QR") }
+                                OutlinedButton(
+                                    onClick = {
+                                        importTarget = PairingScreen.SCAN_ENDPOINT
+                                        qrImageImportLauncher.launch("image/*")
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("Import peer's connection QR image") }
+                                if (remoteEndpoints.isNotEmpty()) {
+                                    Text("Verified peer endpoints", style = MaterialTheme.typography.titleSmall)
+                                    remoteEndpoints.forEach { endpoint ->
+                                        Text("${endpoint.host}:${endpoint.port}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Button(
+                                        onClick = ::connectToImportedEndpoints,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        enabled = peerService != null && !peerConnected && !busy
+                                    ) { Text("Try all verified direct endpoints") }
+                                }
                                 OutlinedTextField(
                                     value = remoteAddress,
                                     onValueChange = { remoteAddress = it },
@@ -678,9 +775,9 @@ private fun ABAPPrivateApp() {
                             }
                         }
 
-                        PairingScreen.SCAN_INVITATION, PairingScreen.SCAN_RESPONSE -> {
+                        PairingScreen.SCAN_INVITATION, PairingScreen.SCAN_RESPONSE, PairingScreen.SCAN_ENDPOINT -> {
                             Text(
-                                if (screen == PairingScreen.SCAN_INVITATION) "Scan invitation" else "Scan response",
+                                when (screen) { PairingScreen.SCAN_INVITATION -> "Scan invitation"; PairingScreen.SCAN_RESPONSE -> "Scan response"; else -> "Scan signed connection QR" },
                                 style = MaterialTheme.typography.titleLarge
                             )
                             if (!cameraPermissionGranted) {
@@ -717,6 +814,30 @@ private fun ABAPPrivateApp() {
                                 onClick = { screen = PairingScreen.HOME },
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text("Reject invitation") }
+                        }
+
+                        PairingScreen.SHOW_ENDPOINT -> {
+                            Text("Direct connection QR", style = MaterialTheme.typography.titleLarge)
+                            endpointQr?.let {
+                                Image(
+                                    bitmap = it.asImageBitmap(),
+                                    contentDescription = "Signed direct endpoint QR code",
+                                    modifier = Modifier.size(250.dp)
+                                )
+                            } ?: CircularProgressIndicator()
+                            Text(
+                                "This QR is signed by this phone's existing device identity and is valid for 24 hours. The other already-paired phone can import it without pairing again. It contains only literal address candidates and TCP port 47831; it does not use a relay or discover public IPv4 automatically.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            OutlinedButton(
+                                onClick = { endpointExportLauncher.launch("ABAP-Private-connection.png") },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = endpointQr != null
+                            ) { Text("Save / share connection QR image") }
+                            Button(
+                                onClick = { screen = PairingScreen.HOME },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Back") }
                         }
 
                         PairingScreen.SHOW_RESPONSE -> {
@@ -783,7 +904,7 @@ private fun ABAPPrivateApp() {
                 Text(statusMessage, style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Pairing QR codes contain signed identity data only. No server, signalling service, STUN/TURN or relay is used.",
+                    "Pairing and endpoint QR codes are exchanged directly as images. No server, signalling service, STUN/TURN or relay is used.",
                     style = MaterialTheme.typography.labelSmall
                 )
             }
