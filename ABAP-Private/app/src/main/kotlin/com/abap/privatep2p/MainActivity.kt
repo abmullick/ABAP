@@ -29,6 +29,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -723,7 +724,19 @@ private fun ABAPPrivateApp() {
                                         modifier = Modifier.fillMaxWidth()
                                     ) { Text("Stop peer service") }
                                 }
-                                Text(connectionStatus, style = MaterialTheme.typography.bodySmall)
+                                Surface(
+                                    color = if (peerConnected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = MaterialTheme.shapes.large,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        connectionStatus,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (peerConnected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                                 Text("This phone's network addresses", style = MaterialTheme.typography.titleSmall)
                                 if (localEndpoints.isEmpty()) {
                                     Text("No non-loopback addresses found. Check the network connection.", style = MaterialTheme.typography.bodySmall)
@@ -757,11 +770,35 @@ private fun ABAPPrivateApp() {
                                 Spacer(Modifier.height(8.dp))
                                 Text("Private messages", style = MaterialTheme.typography.titleLarge)
                                 chatMessages.takeLast(100).forEach { message ->
-                                    Text(
-                                        (if (message.outgoing) "You: " else "${pinnedPeer!!.displayName}: ") + message.body,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
+                                    Surface(
+                                        color = if (message.outgoing) {
+                                            MaterialTheme.colorScheme.primaryContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                        },
+                                        contentColor = if (message.outgoing) {
+                                            MaterialTheme.colorScheme.onPrimaryContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        shape = MaterialTheme.shapes.medium,
+                                        modifier = Modifier
+                                            .fillMaxWidth(0.92f)
+                                            .align(if (message.outgoing) Alignment.End else Alignment.Start)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                if (message.outgoing) "YOU" else pinnedPeer!!.displayName.uppercase(),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (message.outgoing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                                            )
+                                            Text(message.body, style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                    }
                                 }
                                 OutlinedTextField(
                                     value = messageDraft,
@@ -960,9 +997,14 @@ private fun ABAPPrivateApp() {
 
 @Composable
 private fun PeerCard(peer: PinnedPeer) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(peer.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(peer.displayName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
             Text("SHA-256 identity fingerprint", style = MaterialTheme.typography.labelMedium)
             Text(peer.fingerprint, style = MaterialTheme.typography.bodySmall)
         }
