@@ -18,7 +18,8 @@
 - [x] Add reciprocal invitation/response review and fingerprint-confirmation screens.
 - [x] Integrate encrypted single-peer storage, invitation consumption and local peer revocation.
 - [x] Persist the responder's signed response QR encrypted so pairing can be resumed after app restart.
-- [ ] Add automated tests for replay, tamper, expiry, malformed payloads and third-device rejection.
+- [x] Add JVM protocol tests for invitation/response round-trip, signature tampering, expiry, wrong fingerprint and invitation binding.
+- [ ] Add store replay tests, malformed-payload fuzzing and third-device rejection tests.
 - [ ] Complete two-physical-device acceptance tests, including app restart during pairing.
 
 **Exit:** two physical devices pair and mutually authenticate; an unrelated third device is rejected. UI and storage integration are implemented, but this exit criterion remains pending until automated and physical-device tests pass.
