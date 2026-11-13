@@ -14,5 +14,6 @@ android {
 }
 dependencies {
     implementation(project(":core:network"))
+    implementation(libs.concentus)
     testImplementation(libs.junit)
 }
