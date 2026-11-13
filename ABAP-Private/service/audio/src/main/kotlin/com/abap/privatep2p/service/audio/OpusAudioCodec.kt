@@ -39,11 +39,13 @@ class OpusAudioCodec(
         val pcm = ShortArray(frameSamples)
         val samples = decoder.decode(packet, 0, packet.size, pcm, 0, frameSamples, false)
         require(samples in 1..frameSamples) { "Opus decoder returned an invalid sample count" }
-        return ByteBuffer.allocate(samples * BYTES_PER_SAMPLE)
-            .order(ByteOrder.LITTLE_ENDIAN)
-            .asShortBuffer()
-            .put(pcm, 0, samples)
-            .let { buffer -> buffer.position(0); ByteArray(samples * BYTES_PER_SAMPLE).also(buffer::get) }
+        val output = ByteArray(samples * BYTES_PER_SAMPLE)
+        for (index in 0 until samples) {
+            val value = pcm[index].toInt()
+            output[index * 2] = value.toByte()
+            output[index * 2 + 1] = (value shr 8).toByte()
+        }
+        return output
     }
 
     companion object {
