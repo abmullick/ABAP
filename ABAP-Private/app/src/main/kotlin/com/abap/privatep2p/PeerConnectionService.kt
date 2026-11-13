@@ -101,7 +101,7 @@ class PeerConnectionService : Service() {
             ACTION_CONNECT -> {
                 val host = intent?.getStringExtra(EXTRA_HOST).orEmpty()
                 if (host.isBlank()) reportError("Peer address is missing")
-                else connect(host)
+                else connect(listOf(DirectEndpoint(host, TCP_PORT)))
             }
         }
         return START_STICKY
