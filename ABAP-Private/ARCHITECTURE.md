@@ -14,9 +14,12 @@ The current branch contains a functional implementation slice, not the complete 
 - Mutual authentication using the two QR-pinned P-256 identity keys, ephemeral P-256 ECDH, a signed transcript, HKDF-SHA256 and directional AES-256-GCM keys.
 - Length-bounded encrypted frames with per-direction sequence counters.
 - Text chat over the encrypted TCP stream and encrypted local message history (up to 2,000 messages).
-- Basic call request/accept/reject/end controls and 16 kHz mono PCM audio capture/playback over the encrypted stream.
+- Basic call request/accept/reject/end controls and 16 kHz mono Opus speech frames over the encrypted stream.
+- Bounded 12-packet audio playout queue, Android audio focus, and speaker/earpiece switching.
+- A started `PeerConnectionService` foreground service owns the listener, secure channel, receive loop and audio session.
+- Local interface address enumeration and Android NSD advertisement/discovery for same-LAN peers.
 
-The transport's custom handshake is an initial prototype and has not been independently audited. It must receive cryptographic review or be replaced with a maintained Noise implementation before production use. TCP voice is a proof of function, not a low-latency voice architecture. There is no offline delivery queue, message receipt protocol, Opus codec, jitter buffer, endpoint discovery, NAT traversal or foreground call service yet.
+The transport's custom handshake is an initial prototype and has not been independently audited. It must receive cryptographic review or be replaced with a maintained Noise implementation before production use. Opus currently runs over TCP, so head-of-line blocking remains; the bounded playout queue is not a network jitter buffer. NSD only discovers peers on the same LAN. There is no internet rendezvous, UDP/NAT traversal, external endpoint discovery, offline delivery queue, message receipt protocol, adaptive bitrate, or packet-loss concealment.
 
 ## Proposed Android stack
 - Kotlin, Jetpack Compose, Material 3, MVVM and clean module boundaries.
@@ -24,7 +27,7 @@ The transport's custom handshake is an initial prototype and has not been indepe
 - UDP sockets using Android/JVM networking APIs, ConnectivityManager and NetworkCallback.
 - Noise Protocol Framework through a vetted maintained implementation; candidate suite `Noise_XX_25519_ChaChaPoly_SHA256`, subject to library compatibility and security review.
 - Android Keystore-backed identity/key protection.
-- AudioRecord/AudioTrack and libopus.
+- AudioRecord/AudioTrack and Opus (current prototype uses the pure-Java Concentus codec; validate performance and licence before release).
 - Room with SQLCipher-compatible encrypted SQLite.
 - CameraX/ML Kit for QR scanning; a maintained QR encoder.
 - JUnit, coroutine tests and AndroidX instrumentation tests.
@@ -101,9 +104,9 @@ The current invitation/response format and encrypted local peer store implement 
 
 ## Direct network connectivity
 
-**Current prototype:** a TCP listener binds to all local interfaces on port 47831. The user manually enters the other phone's reachable IP address or hostname. The channel is mutually authenticated before any chat/call frame is accepted.
+**Current prototype:** a TCP listener binds to the wildcard local address on port 47831. The user can manually enter the other phone's reachable IP address or hostname. Android NSD advertises and discovers listeners on the same LAN/Wi-Fi; interface enumeration displays local and global-IPv6 candidates without querying an external IP service. The channel is mutually authenticated before any chat/call frame is accepted.
 
-This works only where a direct TCP route already exists: same reachable LAN, globally reachable IPv6 with permissive firewall rules, or public IPv4 with appropriate router port forwarding. It does not solve NAT traversal or endpoint discovery.
+Same-LAN NSD discovery works only where multicast DNS is allowed. Internet connection still works only where a direct TCP route already exists: globally reachable IPv6 with permissive firewall rules, or public IPv4 with appropriate router port forwarding. Address enumeration is not proof of internet reachability. This does not solve NAT traversal, carrier-grade NAT or endpoint rendezvous.
 
 **Planned connectivity work — no relay fallback:**
 
@@ -143,7 +146,7 @@ A UDP reliability layer requires acknowledgements, bounded retransmission, dupli
 
 ## Voice
 
-**Current prototype:** 16 kHz mono PCM16 frames are captured using AudioRecord and streamed inside the encrypted TCP channel; incoming frames are played using AudioTrack. Call request, accept, reject and end controls are encrypted. The same TCP stream carries text and audio, so head-of-line blocking can affect call quality. This is a functional prototype, not a production real-time media transport.
+**Current prototype:** 16 kHz mono PCM16 is captured in 20 ms blocks, encoded/decoded with Concentus Opus, and sent inside encrypted TCP frames. A bounded 12-packet (240 ms) playout queue drops stale frames rather than allowing unbounded latency. Call request, accept, reject and end controls are encrypted. Audio focus and speaker/earpiece routing are managed. The same TCP stream carries text and audio, so head-of-line blocking can affect call quality; this is not a production real-time media transport.
 
 **Target pipeline:** AudioRecord → audio processing → Opus encode → encrypted low-latency voice channel → decrypt → Opus decode → adaptive jitter buffer → AudioTrack.
 
@@ -151,7 +154,7 @@ Initial benchmark settings: 48 kHz mono, 20 ms frames, 24–32 kbps starting bit
 
 ## Foreground service
 
-A user-enabled `PeerConnectionService` displays a persistent notification and owns socket, peer state, incoming messages and call invitations. This service is not yet implemented; current listener and call lifetime are tied to the app process/UI and calls require the app to remain active. Comply with target Android SDK foreground-service types, microphone permissions, background-start restrictions, notification permission and Doze behaviour. A foreground service does not prevent force-stop, shutdown, carrier NAT or network unreachability. Without push/rendezvous infrastructure, incoming calls cannot be guaranteed when app/peer is unavailable.
+The user-started `PeerConnectionService` displays a persistent notification and owns the TCP listener, peer channel, encrypted receive loop and audio session independently of the Activity. It declares connected-device and microphone foreground-service types, requests microphone foreground mode when a call is initiated/accepted, and manages audio focus. This supports ordinary backgrounding during an established call, subject to OS restrictions. It does not bypass force-stop, Doze, device shutdown, carrier NAT or background microphone-start restrictions. There is no push/rendezvous path to guarantee an incoming-call alert while the app is suspended. A foreground service does not prevent force-stop, shutdown, carrier NAT or network unreachability. Without push/rendezvous infrastructure, incoming calls cannot be guaranteed when app/peer is unavailable.
 
 ## Storage and retention
 
