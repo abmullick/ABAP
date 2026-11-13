@@ -348,48 +348,68 @@ class PeerConnectionService : Service() {
 
     private fun requestCall() {
         val secure = channel ?: run { reportError("Connect to your peer first"); return }
-        runCatching {
-            // Promote while the Activity is visible so an accepted call can continue
-            // using the microphone after the user backgrounds the app.
+        try {
+            // Promote on the visible UI action so the microphone foreground-service
+            // type is already active if the peer accepts after this app is backgrounded.
             promoteForeground(true)
-            secure.send(DirectSecureChannel.TYPE_CALL_REQUEST, byteArrayOf())
-        }.onSuccess {
-            callStatus = "Calling peer…"
-            notifyCallStatus()
-        }.onFailure {
-            runCatching { promoteForeground(false) }
-            reportError(it.message ?: "Could not request a call")
+        } catch (error: Exception) {
+            reportError(error.message ?: "Could not start call service")
+            return
+        }
+        thread(name = "abap-private-call-request", isDaemon = true) {
+            runCatching { secure.send(DirectSecureChannel.TYPE_CALL_REQUEST, byteArrayOf()) }
+                .onSuccess {
+                    callStatus = "Calling peer…"
+                    notifyCallStatus()
+                }.onFailure {
+                    runCatching { promoteForeground(false) }
+                    reportError(it.message ?: "Could not request a call")
+                }
         }
     }
 
     private fun acceptCall() {
         val secure = channel ?: run { reportError("Peer is no longer connected"); return }
         try {
+            // This binder method is invoked by the visible Accept button.
             promoteForeground(true)
-            secure.send(DirectSecureChannel.TYPE_CALL_ACCEPT, byteArrayOf())
-            incomingCall = false
-            startAudioSession()
         } catch (error: Exception) {
-            reportError(error.message ?: "Could not accept the call")
+            reportError(error.message ?: "Could not start microphone foreground service")
+            return
+        }
+        thread(name = "abap-private-call-accept", isDaemon = true) {
+            try {
+                secure.send(DirectSecureChannel.TYPE_CALL_ACCEPT, byteArrayOf())
+                incomingCall = false
+                startAudioSession()
+            } catch (error: Exception) {
+                reportError(error.message ?: "Could not accept the call")
+            }
         }
     }
 
     private fun rejectCall() {
-        val secure = channel ?: return
-        runCatching { secure.send(DirectSecureChannel.TYPE_CALL_REJECT, byteArrayOf()) }
+        val secure = channel
         incomingCall = false
         callStatus = "Call declined"
         notifyCallStatus()
+        if (secure != null) thread(name = "abap-private-call-reject", isDaemon = true) {
+            runCatching { secure.send(DirectSecureChannel.TYPE_CALL_REJECT, byteArrayOf()) }
+        }
     }
 
     private fun endCall() {
         val secure = channel
-        runCatching { secure?.send(DirectSecureChannel.TYPE_CALL_END, byteArrayOf()) }
-        incomingCall = false
-        stopAudioSession()
-        callStatus = "Call ended"
-        notifyCallStatus()
-        if (channel != null) promoteForeground(false)
+        thread(name = "abap-private-call-end", isDaemon = true) {
+            if (secure != null) runCatching {
+                secure.send(DirectSecureChannel.TYPE_CALL_END, byteArrayOf())
+            }
+            incomingCall = false
+            stopAudioSession()
+            callStatus = "Call ended"
+            notifyCallStatus()
+            if (channel != null) runCatching { promoteForeground(false) }
+        }
     }
 
     private fun startAudioSession() {
