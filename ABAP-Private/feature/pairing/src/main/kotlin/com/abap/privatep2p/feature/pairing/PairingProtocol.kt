@@ -256,9 +256,9 @@ class PairingCoordinator(
 
     companion object {
         const val VERSION = 1
-        const val DEFAULT_LIFETIME = 300L
+        const val DEFAULT_LIFETIME = 86_400L
         private const val MIN_LIFETIME = 60L
-        private const val MAX_LIFETIME = 600L
+        private const val MAX_LIFETIME = 86_400L
         private const val CLOCK_SKEW_SECONDS = 60L
         private const val MAX_NAME_CHARS = 48
         private const val MAX_KEY_BYTES = 512
