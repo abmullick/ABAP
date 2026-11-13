@@ -75,10 +75,11 @@ class AudioCallSession(
         check(recorder.state == AudioRecord.STATE_INITIALIZED) { "Microphone could not be initialised" }
         check(player.state == AudioTrack.STATE_INITIALIZED) { "Audio output could not be initialised" }
         try {
+            val decoder = OpusAudioCodec()
+            val encoder = OpusAudioCodec()
             recorder.startRecording()
             player.play()
             playoutThread = thread(name = "abap-private-opus-playout", isDaemon = true) {
-                val decoder = OpusAudioCodec()
                 try {
                     while (running.get()) {
                         val packet = playoutQueue.poll(100, TimeUnit.MILLISECONDS) ?: continue
@@ -91,7 +92,6 @@ class AudioCallSession(
                 }
             }
             captureThread = thread(name = "abap-private-opus-capture", isDaemon = true) {
-                val encoder = OpusAudioCodec()
                 val pcm = ByteArray(OpusAudioCodec.FRAME_BYTES)
                 var filled = 0
                 try {
