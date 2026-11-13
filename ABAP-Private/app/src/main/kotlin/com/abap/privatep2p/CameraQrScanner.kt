@@ -55,8 +55,10 @@ fun CameraQrScanner(
         val mainExecutor = ContextCompat.getMainExecutor(context)
         val providerFuture = ProcessCameraProvider.getInstance(context)
         var provider: ProcessCameraProvider? = null
+        val disposed = AtomicBoolean(false)
 
         val listener = Runnable {
+            if (disposed.get()) return@Runnable
             try {
                 provider = providerFuture.get()
                 val preview = Preview.Builder().build().also {
@@ -94,6 +96,7 @@ fun CameraQrScanner(
         providerFuture.addListener(listener, mainExecutor)
 
         onDispose {
+            disposed.set(true)
             provider?.unbindAll()
             executor.shutdown()
         }
