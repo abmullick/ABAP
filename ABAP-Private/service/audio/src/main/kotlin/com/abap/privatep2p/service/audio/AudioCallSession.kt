@@ -1,6 +1,9 @@
 package com.abap.privatep2p.service.audio
 
+import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.AudioTrack
@@ -20,9 +23,30 @@ import kotlin.concurrent.thread
  * allowing latency to grow without limit.
  */
 class AudioCallSession(
+    context: Context,
     private val channel: DirectSecureChannel,
     private val onFailure: (Throwable) -> Unit = {}
 ) : Closeable {
+    private val audioManager = context.getSystemService(AudioManager::class.java)
+    private val previousAudioMode = audioManager.mode
+    private val previousSpeakerState = audioManager.isSpeakerphoneOn
+    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        if (change == AudioManager.AUDIOFOCUS_LOSS && running.get()) {
+            onFailure(IllegalStateException("Audio focus was taken by another application"))
+        }
+    }
+    private val audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+        )
+        .setOnAudioFocusChangeListener(audioFocusListener)
+        .setWillPauseWhenDucked(false)
+        .build()
+    @Volatile private var audioFocusHeld = false
+
     private val minBuffer = AudioRecord.getMinBufferSize(
         OpusAudioCodec.SAMPLE_RATE,
         AudioFormat.CHANNEL_IN_MONO,
@@ -75,8 +99,15 @@ class AudioCallSession(
         check(recorder.state == AudioRecord.STATE_INITIALIZED) { "Microphone could not be initialised" }
         check(player.state == AudioTrack.STATE_INITIALIZED) { "Audio output could not be initialised" }
         try {
+            check(audioManager.requestAudioFocus(audioFocusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                "Audio focus is not available"
+            }
+            audioFocusHeld = true
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
             val decoder = OpusAudioCodec()
             val encoder = OpusAudioCodec()
+            check(recorder.state == AudioRecord.STATE_INITIALIZED) { "Microphone could not be initialised" }
+            check(player.state == AudioTrack.STATE_INITIALIZED) { "Audio output could not be initialised" }
             recorder.startRecording()
             player.play()
             playoutThread = thread(name = "abap-private-opus-playout", isDaemon = true) {
@@ -121,6 +152,10 @@ class AudioCallSession(
         }
     }
 
+    fun setSpeakerphone(enabled: Boolean) {
+        audioManager.isSpeakerphoneOn = enabled
+    }
+
     /** Called by the single network receive loop. Never blocks that loop on audio playback. */
     fun playIncoming(opusPacket: ByteArray) {
         if (!running.get() || opusPacket.isEmpty() || opusPacket.size > MAX_PACKET_BYTES) return
@@ -142,6 +177,12 @@ class AudioCallSession(
         runCatching { player.release() }
         runCatching { echoCanceler?.release() }
         runCatching { noiseSuppressor?.release() }
+        runCatching { audioManager.mode = previousAudioMode }
+        runCatching { audioManager.isSpeakerphoneOn = previousSpeakerState }
+        if (audioFocusHeld) {
+            runCatching { audioManager.abandonAudioFocusRequest(audioFocusRequest) }
+            audioFocusHeld = false
+        }
         captureThread?.interrupt()
         playoutThread?.interrupt()
     }
