@@ -15,9 +15,11 @@
 - [x] Add SHA-256 public-key fingerprints and exact-match confirmation gates.
 - [x] Add QR bitmap generation and invitation display.
 - [x] Add on-device CameraX QR scanning and ZXing decoding.
+- [x] Add QR PNG export and gallery/document-picker import for remote invitation/response exchange.
 - [x] Add reciprocal invitation/response review and fingerprint-confirmation screens.
-- [x] Integrate encrypted single-peer storage, invitation consumption and local peer revocation.
-- [x] Persist the responder's signed response QR encrypted so pairing can be resumed after app restart.
+- [x] Integrate encrypted single-peer storage and invitation consumption.
+- [x] Persist the active invitation and responder's signed response QR encrypted so remote pairing can resume after app restart.
+- [x] Restore an existing pinned peer at startup without asking for re-pairing; remove routine in-app unpair/re-pair controls.
 - [x] Add JVM protocol tests for invitation/response round-trip, signature tampering, expiry, wrong fingerprint and invitation binding.
 - [ ] Add store replay tests, malformed-payload fuzzing and third-device rejection tests.
 - [ ] Complete two-physical-device acceptance tests, including app restart during pairing.
