@@ -28,15 +28,16 @@ See ARCHITECTURE.md, SECURITY.md and ROADMAP.md.
 Open the ABAP-Private directory in Android Studio with JDK 17 and an Android SDK supporting compile SDK 35. The project pins Android Gradle Plugin 8.9.2 and Kotlin 2.1.20. A Gradle wrapper has not yet been committed.
 
 ## Current implementation status
-The Milestone 1 foundation now includes:
+The first end-to-end local QR pairing workflow is now implemented:
 - A P-256 ECDSA signing identity generated and retained by Android Keystore.
-- Versioned signed invitation and response payloads.
-- Invitation expiry validation and cryptographic response binding to the invitation.
-- SHA-256 public-key fingerprints with exact-match confirmation gates in the pairing API.
-- QR bitmap generation and an initial screen displaying this device's fingerprint and invitation QR.
-- An AES-256-GCM encrypted local pairing-state store, with a single-peer pin slot and bounded consumed-invitation ledger.
+- Versioned signed invitation and response payloads, invitation expiry validation and response binding.
+- CameraX QR preview with on-device ZXing decoding.
+- Reciprocal inviter/responder fingerprint review and explicit confirmation screens.
+- AES-256-GCM encrypted single-peer persistence, consumed-invitation tracking and local revoke/re-pair controls.
+- The responder's signed response QR is stored encrypted so it can be shown again after app restart.
+- Android CI builds the debug APK and runs unit-test tasks.
 
-Still missing: camera scanning/import UI, reciprocal confirmation screens and integration of the encrypted store into the complete pairing flow, revoke/re-pair UX and physical-device acceptance tests. The pairing APIs and persistence primitive are not yet a completed end-to-end workflow. No direct P2P networking, messaging or voice transport has been implemented.
+Still required: automated replay/tamper/expiry/third-device tests and two-physical-device acceptance testing. The pairing workflow has not yet been independently security-audited. No direct P2P networking, messaging or voice transport has been implemented.
 
 ## Connectivity limitation
 Serverless connectivity cannot be guaranteed across arbitrary networks. IPv6 direct connectivity requires globally reachable IPv6 and permissive firewalls. IPv4 may require a stable public endpoint and port forwarding. UDP hole punching is best-effort and cannot be assumed to work across every carrier-grade NAT. QR pairing does not automatically update a peer when its address changes. Without rendezvous or push infrastructure, automatic discovery and incoming calls while suspended cannot be guaranteed.
