@@ -1,7 +1,8 @@
 # core/network
 
 Current direct-network implementation:
-- TCP listener on port 47831 and manually configured outgoing internet endpoint.
+- TCP listener on port 47831 and outgoing direct endpoint connection.
+- Signed endpoint QR payloads (24-hour default expiry) bound to the already-pinned peer public key; supports multiple literal IPv4/IPv6 candidates and sequential direct connection attempts.
 - Wildcard listener bind to accept traffic on local interfaces (dual-stack behaviour depends on Android/network configuration and needs device validation).
 - Peer authentication against the public identity key pinned during QR pairing.
 - Ephemeral P-256 ECDH, signed transcript, HKDF-SHA256 key derivation and directional AES-256-GCM.
