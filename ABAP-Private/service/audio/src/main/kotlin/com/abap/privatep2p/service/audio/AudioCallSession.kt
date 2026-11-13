@@ -96,9 +96,9 @@ class AudioCallSession(
 
     fun start() {
         check(running.compareAndSet(false, true)) { "Voice session is already running" }
-        check(recorder.state == AudioRecord.STATE_INITIALIZED) { "Microphone could not be initialised" }
-        check(player.state == AudioTrack.STATE_INITIALIZED) { "Audio output could not be initialised" }
         try {
+            check(recorder.state == AudioRecord.STATE_INITIALIZED) { "Microphone could not be initialised" }
+            check(player.state == AudioTrack.STATE_INITIALIZED) { "Audio output could not be initialised" }
             check(audioManager.requestAudioFocus(audioFocusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
                 "Audio focus is not available"
             }
