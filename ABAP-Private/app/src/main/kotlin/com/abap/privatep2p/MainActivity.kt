@@ -166,6 +166,9 @@ private fun ABAPPrivateApp() {
             override fun onMessage(message: StoredChatMessage) {
                 chatMessages = (chatMessages + message).takeLast(2_000)
             }
+            override fun onHistory(messages: List<StoredChatMessage>) {
+                chatMessages = messages.takeLast(2_000)
+            }
             override fun onIncomingCall() {
                 incomingCall = true
             }
