@@ -25,7 +25,7 @@ Milestone 1 now includes the device identity, QR protocol, camera scanning and t
 
 Revocation is local only; the other phone is not notified. A new pairing requires both devices to revoke the old peer locally and exchange fresh QR codes.
 
-## Remaining validation
-Automated protocol/store tests, replay/tamper/expiry/third-device tests, and two-physical-device tests remain. This code has not yet been independently security-audited. A successful pairing pins identity keys; it does not establish a network connection.
+## Tests and remaining validation
+JVM protocol tests now cover signed invitation/response round-trip, tampered invitation signatures, expired invitations, wrong fingerprint confirmation and response-to-invitation binding. Store replay tests, malformed-payload fuzzing, third-device rejection and two-physical-device tests remain. This code has not yet been independently security-audited. A successful pairing pins identity keys; it does not establish a network connection.
 
 QR payloads contain no network address and do not provide rendezvous, discovery, NAT traversal or connectivity. The app does not use a backend, signalling, STUN/TURN or relay.
