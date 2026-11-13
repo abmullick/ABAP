@@ -54,6 +54,7 @@ class PeerConnectionService : Service() {
         fun acceptCall() = this@PeerConnectionService.acceptCall()
         fun rejectCall() = this@PeerConnectionService.rejectCall()
         fun endCall() = this@PeerConnectionService.endCall()
+        fun setSpeakerphone(enabled: Boolean) = this@PeerConnectionService.setSpeakerphone(enabled)
         fun stopConnection() = this@PeerConnectionService.stopConnection()
         fun discoverPeers() = this@PeerConnectionService.startDiscovery()
         fun stopPeerDiscovery() = this@PeerConnectionService.stopDiscovery()
@@ -396,7 +397,7 @@ class PeerConnectionService : Service() {
         try {
             promoteForeground(true)
             audioSession?.close()
-            audioSession = AudioCallSession(secure) { error ->
+            audioSession = AudioCallSession(this, secure) { error ->
                 reportError(error.message ?: "Voice transport failed")
                 endCall()
             }.also { it.start() }
@@ -409,6 +410,10 @@ class PeerConnectionService : Service() {
             reportError(callStatus)
             promoteForeground(false)
         }
+    }
+
+    private fun setSpeakerphone(enabled: Boolean) {
+        audioSession?.setSpeakerphone(enabled)
     }
 
     private fun stopAudioSession() {
