@@ -152,7 +152,7 @@ private fun ABAPPrivateApp() {
                 val pending = pairingStore.loadPendingResponse()
                 val invitation = if (peer == null) pairing.createInvitation(deviceName()) else null
                 val payload = invitation?.let(pairing::encodeInvitation)
-                val qr = payload?.let(PairingQrCode::render)
+                val qr = payload?.let { PairingQrCode.render(it) }
                 val pendingQr = pending?.let { PairingQrCode.render(it.encodedPayload) }
                 InitialPairingState(identity.fingerprint, peer, invitation, qr, pending, pendingQr)
             }
