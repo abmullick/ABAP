@@ -9,26 +9,36 @@ import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.NoiseSuppressor
 import com.abap.privatep2p.core.network.DirectSecureChannel
 import java.io.Closeable
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 /**
- * Foreground-session PCM voice engine. Audio is carried only inside the authenticated,
- * encrypted peer channel; this class never opens a network socket itself.
+ * Full-duplex speech session using 20 ms Opus frames inside the authenticated,
+ * encrypted peer channel. A bounded playout queue drops stale audio rather than
+ * allowing latency to grow without limit.
  */
 class AudioCallSession(
     private val channel: DirectSecureChannel,
     private val onFailure: (Throwable) -> Unit = {}
 ) : Closeable {
     private val minBuffer = AudioRecord.getMinBufferSize(
-        SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
-    ).coerceAtLeast(FRAME_BYTES * 4)
+        OpusAudioCodec.SAMPLE_RATE,
+        AudioFormat.CHANNEL_IN_MONO,
+        AudioFormat.ENCODING_PCM_16BIT
+    ).also {
+        check(it > 0) { "This device does not support the requested microphone format" }
+    }.coerceAtLeast(OpusAudioCodec.FRAME_BYTES * 4)
+
     private val recorder = AudioRecord(
         MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-        SAMPLE_RATE,
+        OpusAudioCodec.SAMPLE_RATE,
         AudioFormat.CHANNEL_IN_MONO,
         AudioFormat.ENCODING_PCM_16BIT,
         minBuffer
     )
+
     private val player = AudioTrack.Builder()
         .setAudioAttributes(
             AudioAttributes.Builder()
@@ -39,7 +49,7 @@ class AudioCallSession(
         .setAudioFormat(
             AudioFormat.Builder()
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                .setSampleRate(SAMPLE_RATE)
+                .setSampleRate(OpusAudioCodec.SAMPLE_RATE)
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                 .build()
         )
@@ -47,8 +57,12 @@ class AudioCallSession(
         .setTransferMode(AudioTrack.MODE_STREAM)
         .build()
 
-    @Volatile private var running = false
+    private val running = AtomicBoolean(false)
+    private val released = AtomicBoolean(false)
+    private val playoutQueue = ArrayBlockingQueue<ByteArray>(PLAYOUT_QUEUE_FRAMES)
     private var captureThread: Thread? = null
+    private var playoutThread: Thread? = null
+
     private val echoCanceler = if (AcousticEchoCanceler.isAvailable()) {
         AcousticEchoCanceler.create(recorder.audioSessionId)?.apply { enabled = true }
     } else null
@@ -57,37 +71,69 @@ class AudioCallSession(
     } else null
 
     fun start() {
-        check(!running) { "Voice session is already running" }
+        check(running.compareAndSet(false, true)) { "Voice session is already running" }
         check(recorder.state == AudioRecord.STATE_INITIALIZED) { "Microphone could not be initialised" }
         check(player.state == AudioTrack.STATE_INITIALIZED) { "Audio output could not be initialised" }
-        running = true
-        recorder.startRecording()
-        player.play()
-        captureThread = thread(name = "abap-private-audio-capture", isDaemon = true) {
-            val buffer = ByteArray(FRAME_BYTES)
-            try {
-                while (running) {
-                    val count = recorder.read(buffer, 0, buffer.size)
-                    if (count > 0) channel.send(
-                        DirectSecureChannel.TYPE_AUDIO,
-                        if (count == buffer.size) buffer.copyOf() else buffer.copyOf(count)
-                    )
+        try {
+            recorder.startRecording()
+            player.play()
+            playoutThread = thread(name = "abap-private-opus-playout", isDaemon = true) {
+                val decoder = OpusAudioCodec()
+                try {
+                    while (running.get()) {
+                        val packet = playoutQueue.poll(100, TimeUnit.MILLISECONDS) ?: continue
+                        val pcm = decoder.decode(packet)
+                        player.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
+                    }
+                } catch (error: Throwable) {
+                    if (running.get()) onFailure(error)
+                    close()
                 }
-            } catch (error: Throwable) {
-                if (running) onFailure(error)
-                close()
             }
+            captureThread = thread(name = "abap-private-opus-capture", isDaemon = true) {
+                val encoder = OpusAudioCodec()
+                val pcm = ByteArray(OpusAudioCodec.FRAME_BYTES)
+                var filled = 0
+                try {
+                    while (running.get()) {
+                        val count = recorder.read(
+                            pcm,
+                            filled,
+                            pcm.size - filled,
+                            AudioRecord.READ_BLOCKING
+                        )
+                        if (count < 0) error("Microphone read failed: $count")
+                        filled += count
+                        if (filled == pcm.size) {
+                            val packet = encoder.encode(pcm)
+                            channel.send(DirectSecureChannel.TYPE_AUDIO, packet)
+                            filled = 0
+                        }
+                    }
+                } catch (error: Throwable) {
+                    if (running.get()) onFailure(error)
+                    close()
+                }
+            }
+        } catch (error: Throwable) {
+            close()
+            throw error
         }
     }
 
-    fun playIncoming(pcm: ByteArray) {
-        if (!running || pcm.isEmpty()) return
-        player.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
+    /** Called by the single network receive loop. Never blocks that loop on audio playback. */
+    fun playIncoming(opusPacket: ByteArray) {
+        if (!running.get() || opusPacket.isEmpty() || opusPacket.size > MAX_PACKET_BYTES) return
+        if (!playoutQueue.offer(opusPacket.copyOf())) {
+            playoutQueue.poll()
+            playoutQueue.offer(opusPacket.copyOf())
+        }
     }
 
     override fun close() {
-        if (!running && recorder.state == AudioRecord.STATE_UNINITIALIZED) return
-        running = false
+        if (!released.compareAndSet(false, true)) return
+        running.set(false)
+        playoutQueue.clear()
         runCatching { recorder.stop() }
         runCatching { player.pause() }
         runCatching { player.flush() }
@@ -96,10 +142,12 @@ class AudioCallSession(
         runCatching { player.release() }
         runCatching { echoCanceler?.release() }
         runCatching { noiseSuppressor?.release() }
+        captureThread?.interrupt()
+        playoutThread?.interrupt()
     }
 
     companion object {
-        const val SAMPLE_RATE = 16_000
-        private const val FRAME_BYTES = 640 // 20 ms, mono, PCM16
+        private const val PLAYOUT_QUEUE_FRAMES = 12 // 240 ms hard upper bound
+        private const val MAX_PACKET_BYTES = 1_275
     }
 }
