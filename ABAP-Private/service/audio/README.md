@@ -1,5 +1,9 @@
 # service/audio
 
-AudioRecord/AudioTrack pipeline, routing and Opus integration boundary.
+`AudioCallSession` provides an initial voice path:
+- Captures mono PCM16 at 16 kHz using `AudioRecord` with VOICE_COMMUNICATION source.
+- Streams 20 ms audio frames through the already authenticated and encrypted peer channel.
+- Plays received PCM using streaming `AudioTrack`.
+- Enables platform acoustic echo cancellation and noise suppression when available.
 
-Implementation is pending. Keep this module focused on the responsibility above and expose interfaces to other modules rather than leaking platform or implementation details.
+This is a prototype. Opus encoding, jitter buffering, adaptive bitrate, explicit audio-focus management, routing controls and foreground-service lifecycle are not yet implemented.
