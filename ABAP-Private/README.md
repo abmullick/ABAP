@@ -31,10 +31,12 @@ Open the ABAP-Private directory in Android Studio with JDK 17 and an Android SDK
 The first end-to-end local QR pairing workflow is now implemented:
 - A P-256 ECDSA signing identity generated and retained by Android Keystore.
 - Versioned signed invitation and response payloads, invitation expiry validation and response binding.
-- CameraX QR preview with on-device ZXing decoding.
+- CameraX QR preview with on-device ZXing decoding, plus gallery/document-picker import of QR images.
+- Signed invitation and response QR codes can be exported as PNG files and exchanged remotely through an independent channel (email or an existing messaging app).
 - Reciprocal inviter/responder fingerprint review and explicit confirmation screens.
-- AES-256-GCM encrypted single-peer persistence, consumed-invitation tracking and local revoke/re-pair controls.
-- The responder's signed response QR is stored encrypted so it can be shown again after app restart.
+- AES-256-GCM encrypted single-peer persistence, consumed-invitation tracking and encrypted persistence of the active invitation and responder's pending response.
+- Existing peer trust is restored at startup; ordinary app restarts and network changes do not request pairing again. The saved response remains available for export after restart.
+- Pairing reset is intentionally not exposed as a routine in-app action; clearing app data removes the local pairing record.
 - Android CI builds the debug APK and runs unit-test tasks.
 
 Still required: automated replay/tamper/expiry/third-device tests and two-physical-device acceptance testing. The pairing workflow has not yet been independently security-audited. No direct P2P networking, messaging or voice transport has been implemented.
