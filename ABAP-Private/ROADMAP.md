@@ -33,10 +33,13 @@
 - [x] Add bounded encrypted frames, per-direction counters and replay/out-of-order rejection.
 - [x] Add unit tests for peer authentication and encrypted bidirectional frames.
 - [ ] Replace or independently review the initial custom handshake; evaluate a maintained Noise implementation before production.
-- [ ] Implement network/interface discovery and endpoint sharing.
-- [ ] Enumerate global IPv6 candidates and configured IPv4 endpoints.
+- [x] Enumerate local interface IPv4/IPv6 candidates without an external IP lookup service.
+- [x] Add Android NSD advertisement and discovery for same-LAN peers.
+- [ ] Add persisted manual internet endpoint sharing and endpoint change workflow.
+- [ ] Validate global IPv6 candidates and configured public IPv4 endpoints on physical networks.
 - [ ] Evaluate direct UDP and best-effort NAT traversal without any rendezvous/relay.
 - [ ] Test IPv6, configured IPv4, Wi-Fi and mobile combinations on two physical devices.
+- [ ] Test NSD peer discovery and endpoint loss/recovery on two physical devices.
 
 **Exit:** two physical devices establish authenticated encrypted connectivity on documented supported networks, with packet capture evidence and no server/relay traffic. This exit criterion remains pending physical-device testing.
 
@@ -52,18 +55,22 @@
 **Exit:** text delivery, acknowledgement, offline queueing, reconnection and expiry tests pass.
 
 ## Milestone 4: Voice calling
-- [x] Add initial AudioRecord/AudioTrack PCM capture and playback.
+- [x] Add AudioRecord/AudioTrack capture and playback.
+- [x] Integrate Opus encode/decode using 16 kHz mono 20 ms speech frames.
+- [x] Add bounded audio playout queue to cap stale buffered frames.
 - [x] Add encrypted call request, accept, reject and end control frames.
-- [ ] Integrate libopus.
-- [ ] Move voice to a low-latency datagram channel with jitter buffer, loss concealment and adaptive bitrate.
-- [ ] Add call state machine, mute, speaker, audio focus and Bluetooth routing.
-- [ ] Add foreground call service so calls can survive normal backgrounding.
+- [x] Add Android audio focus and speaker/earpiece switching.
+- [x] Add foreground peer service ownership of sockets, receive loop and audio session.
+- [x] Promote active calls to the Android microphone foreground-service type.
+- [ ] Move voice to a low-latency datagram channel with a proper jitter buffer, packet-loss concealment and adaptive bitrate.
+- [ ] Add Bluetooth route selection, mute and call quality diagnostics.
 
 **Exit:** stable two-way calls on supported paths; measure latency, packet loss and battery use on real devices.
 
 ## Milestone 5: Android lifecycle and UX
-- Implement foreground service and persistent notification.
-- Add user-controlled always-connected mode.
+- [x] Implement foreground service and persistent notification.
+- [x] Keep the peer listener, encrypted channel and active call audio independent of the Activity.
+- [ ] Add user-controlled always-connected mode.
 - Handle network changes and bounded reconnection.
 - Implement incoming-call UI when peer is reachable.
 - Add connection, security and retention diagnostics.
@@ -91,7 +98,8 @@
 8. Queue messages locally while peer offline and reconcile after reconnect.
 9. Expire text, media and metadata per policy.
 10. Remove expired attachments and temporary copies.
-11. Complete a 30-minute voice test on a supported path.
+11. Complete a 30-minute Opus voice test on a supported path, including app backgrounding.
+12. Test voice packet delay, TCP head-of-line blocking, playout queue drops and audio focus changes.
 12. Test Wi-Fi loss, mobile handoff and address change.
 13. Verify foreground service and notification behaviour.
 14. Verify no app backend, signalling, STUN/TURN or relay traffic.
