@@ -109,6 +109,7 @@ private fun ABAPPrivateApp() {
     var endpointQr by remember { mutableStateOf<Bitmap?>(null) }
     var localReachableAddress by remember { mutableStateOf("") }
     var remoteEndpoints by remember { mutableStateOf<List<DirectEndpoint>>(emptyList()) }
+    var remoteEndpointFingerprint by remember { mutableStateOf<String?>(null) }
     var scannedInvitation by remember { mutableStateOf<PairingInvitation?>(null) }
     var scannedResponse by remember { mutableStateOf<PairingResponse?>(null) }
     var candidatePeer by remember { mutableStateOf<PinnedPeer?>(null) }
@@ -425,6 +426,7 @@ private fun ABAPPrivateApp() {
                         EndpointAdvertisementCodec.verify(payload, peer.publicKey)
                     }
                     remoteEndpoints = advertisement.endpoints
+                    remoteEndpointFingerprint = advertisement.peerFingerprint
                     remoteAddress = advertisement.endpoints.first().host
                     screen = PairingScreen.HOME
                     statusMessage = "Verified a signed endpoint QR from your already-paired peer. No new pairing was performed."
@@ -636,6 +638,8 @@ private fun ABAPPrivateApp() {
                                     modifier = Modifier.fillMaxWidth()
                                 ) { Text("Import peer's connection QR image") }
                                 if (remoteEndpoints.isNotEmpty()) {
+                                    Text("Verified peer identity · SHA-256", style = MaterialTheme.typography.titleSmall)
+                                    Text(remoteEndpointFingerprint ?: "Fingerprint unavailable", style = MaterialTheme.typography.bodySmall)
                                     Text("Verified peer endpoints", style = MaterialTheme.typography.titleSmall)
                                     remoteEndpoints.forEach { endpoint ->
                                         Text("${endpoint.host}:${endpoint.port}", style = MaterialTheme.typography.bodySmall)
@@ -826,7 +830,7 @@ private fun ABAPPrivateApp() {
                                 )
                             } ?: CircularProgressIndicator()
                             Text(
-                                "This QR is signed by this phone's existing device identity and is valid for 24 hours. The other already-paired phone can import it without pairing again. It contains only literal address candidates and TCP port 47831; it does not use a relay or discover public IPv4 automatically.",
+                                "This QR includes this phone's public signing key and SHA-256 fingerprint, all covered by its digital signature. The receiving phone requires an exact match with the identity already pinned during pairing. The private key is never shared. The QR is valid for 24 hours and contains only literal address candidates and TCP port 47831; it does not use a relay or discover public IPv4 automatically.",
                                 style = MaterialTheme.typography.bodySmall
                             )
                             OutlinedButton(
