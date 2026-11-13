@@ -84,6 +84,23 @@ class PairingCoordinator(
         return unsigned.copy(signature = identity.sign(responseSigningBytes(unsigned)))
     }
 
+    fun peerFromInvitation(
+        invitation: PairingInvitation,
+        confirmedInviterFingerprint: String
+    ): PinnedPeer {
+        requireValidInvitation(invitation, clockSeconds())
+        val actualFingerprint = AndroidDeviceIdentityStore.fingerprint(invitation.publicKey)
+        require(confirmedInviterFingerprint == actualFingerprint) {
+            "The confirmed inviter fingerprint does not match this invitation"
+        }
+        return PinnedPeer(
+            invitation.displayName,
+            invitation.publicKey.copyOf(),
+            actualFingerprint,
+            clockSeconds()
+        )
+    }
+
     fun verifyResponse(
         invitation: PairingInvitation,
         response: PairingResponse,
