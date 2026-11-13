@@ -116,6 +116,7 @@ private fun ABAPPrivateApp() {
     var callStatus by remember { mutableStateOf("No active call") }
     var incomingCall by remember { mutableStateOf(false) }
     var localEndpoints by remember { mutableStateOf<List<LocalEndpointAddress>>(emptyList()) }
+    var discoveredPeers by remember { mutableStateOf<List<Triple<String, String, Int>>>(emptyList()) }
     var microphonePermissionGranted by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }
@@ -175,6 +176,12 @@ private fun ABAPPrivateApp() {
             }
             override fun onError(message: String) {
                 errorMessage = message
+            }
+            override fun onEndpointDiscovered(name: String, host: String, port: Int) {
+                discoveredPeers = (discoveredPeers.filterNot { it.second == host } + Triple(name, host, port))
+            }
+            override fun onEndpointLost(name: String) {
+                discoveredPeers = discoveredPeers.filterNot { it.first == name }
             }
         }
     }
@@ -557,7 +564,9 @@ private fun ABAPPrivateApp() {
                                 if (serviceStarted) {
                                     OutlinedButton(
                                         onClick = {
+                                            peerService?.stopPeerDiscovery()
                                             peerService?.stopConnection()
+                                            discoveredPeers = emptyList()
                                             serviceStarted = false
                                             peerConnected = false
                                             callActive = false
@@ -582,6 +591,21 @@ private fun ABAPPrivateApp() {
                                     "Private LAN addresses work only on the same reachable network. A global IPv6 address may be reachable if firewalls allow it. Public IPv4 usually needs router port forwarding for TCP 47831. This app does not query an external IP service.",
                                     style = MaterialTheme.typography.bodySmall
                                 )
+                                OutlinedButton(
+                                    onClick = { peerService?.discoverPeers() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = peerService != null
+                                ) { Text("Find peers on this local network") }
+                                discoveredPeers.forEach { endpoint ->
+                                    OutlinedButton(
+                                        onClick = { peerService?.connectTo(endpoint.second) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        enabled = peerService != null && !peerConnected
+                                    ) { Text("Connect to ${endpoint.first} · ${endpoint.second}") }
+                                }
+                                if (discoveredPeers.isEmpty()) {
+                                    Text("No nearby ABAP Private listener discovered yet. Local discovery works only on the same LAN/Wi-Fi; it does not discover internet peers.", style = MaterialTheme.typography.bodySmall)
+                                }
                                 Spacer(Modifier.height(8.dp))
                                 Text("Private messages", style = MaterialTheme.typography.titleLarge)
                                 chatMessages.takeLast(100).forEach { message ->
