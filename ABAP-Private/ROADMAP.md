@@ -3,7 +3,8 @@
 ## Milestone 0: Android foundation
 - [x] Create native Kotlin Android project and Gradle version catalog.
 - [x] Establish package namespace and module boundaries.
-- [ ] Add CI build, formatting, static analysis and unit-test setup.
+- [x] Add an Android build and unit-test CI workflow.
+- [ ] Add formatting, static analysis and unit-test coverage.
 
 **Exit:** clean debug build and baseline tests pass.
 
@@ -11,10 +12,11 @@
 - [x] Generate a persistent P-256 device signing identity in Android Keystore.
 - [x] Define versioned, signed invitation and response QR payloads.
 - [x] Add bounded invitation expiry, signature validation and invitation-digest binding.
-- [x] Add SHA-256 public-key fingerprints and explicit confirmation gates in pairing APIs.
+- [x] Add SHA-256 public-key fingerprints and exact-match confirmation gates in pairing APIs.
 - [x] Add QR bitmap generation and an initial invitation display screen.
-- [ ] Add camera QR scanning/import UI and display/confirmation screens on both devices.
-- [ ] Persist the single pinned peer securely; implement durable single-use/replay tracking and revoke/re-pair.
+- [x] Add AES-256-GCM encrypted local pairing-state storage, one-peer pinning and bounded consumed-invitation tracking primitives.
+- [ ] Add camera QR scanning/import UI and reciprocal confirmation screens.
+- [ ] Integrate the encrypted store into the full two-device pairing flow; add revoke/re-pair UX.
 - [ ] Add replay, tamper, expiry, third-device and two-physical-device acceptance tests.
 
 **Exit:** two physical devices pair and mutually authenticate; an unrelated third device is rejected. This exit criterion is not yet met.
