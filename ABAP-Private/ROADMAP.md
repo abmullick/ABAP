@@ -12,14 +12,16 @@
 - [x] Generate a persistent P-256 device signing identity in Android Keystore.
 - [x] Define versioned, signed invitation and response QR payloads.
 - [x] Add bounded invitation expiry, signature validation and invitation-digest binding.
-- [x] Add SHA-256 public-key fingerprints and exact-match confirmation gates in pairing APIs.
-- [x] Add QR bitmap generation and an initial invitation display screen.
-- [x] Add AES-256-GCM encrypted local pairing-state storage, one-peer pinning and bounded consumed-invitation tracking primitives.
-- [ ] Add camera QR scanning/import UI and reciprocal confirmation screens.
-- [ ] Integrate the encrypted store into the full two-device pairing flow; add revoke/re-pair UX.
-- [ ] Add replay, tamper, expiry, third-device and two-physical-device acceptance tests.
+- [x] Add SHA-256 public-key fingerprints and exact-match confirmation gates.
+- [x] Add QR bitmap generation and invitation display.
+- [x] Add on-device CameraX QR scanning and ZXing decoding.
+- [x] Add reciprocal invitation/response review and fingerprint-confirmation screens.
+- [x] Integrate encrypted single-peer storage, invitation consumption and local peer revocation.
+- [x] Persist the responder's signed response QR encrypted so pairing can be resumed after app restart.
+- [ ] Add automated tests for replay, tamper, expiry, malformed payloads and third-device rejection.
+- [ ] Complete two-physical-device acceptance tests, including app restart during pairing.
 
-**Exit:** two physical devices pair and mutually authenticate; an unrelated third device is rejected. This exit criterion is not yet met.
+**Exit:** two physical devices pair and mutually authenticate; an unrelated third device is rejected. UI and storage integration are implemented, but this exit criterion remains pending until automated and physical-device tests pass.
 
 ## Milestone 2: Direct encrypted connectivity proof
 - [ ] Implement network/interface discovery.
