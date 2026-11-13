@@ -61,7 +61,9 @@ class EndpointAdvertisementCodecTest {
     @Test fun rejectsTamperedPayload() {
         val (identity, pair) = identity()
         val qr = EndpointAdvertisementCodec.create(identity, listOf(DirectEndpoint("192.168.1.20")), 1_000)
-        val changed = qr.replace("192", "193")
+        val parts = qr.split('.')
+        val changedPayload = (if (parts[1].first() == 'A') "B" else "A") + parts[1].drop(1)
+        val changed = "${parts[0]}.$changedPayload.${parts[2]}"
         assertFalse(changed == qr)
         assertThrows(IllegalArgumentException::class.java) {
             EndpointAdvertisementCodec.verify(changed, pair.public.encoded, 1_001)
