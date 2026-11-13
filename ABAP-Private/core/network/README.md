@@ -2,7 +2,7 @@
 
 Current direct-network implementation:
 - TCP listener on port 47831 and outgoing direct endpoint connection.
-- Signed endpoint QR payloads (24-hour default expiry) bound to the already-pinned peer public key; supports multiple literal IPv4/IPv6 candidates and sequential direct connection attempts.
+- Signed V2 endpoint QR payloads (24-hour default expiry) carry the sender's encoded public signing key and SHA-256 fingerprint inside the signed payload. Import requires byte-for-byte equality with the already-pinned peer key and validates the fingerprint before accepting multiple literal IPv4/IPv6 candidates for sequential direct connection attempts.
 - Wildcard listener bind to accept traffic on local interfaces (dual-stack behaviour depends on Android/network configuration and needs device validation).
 - Peer authentication against the public identity key pinned during QR pairing.
 - Ephemeral P-256 ECDH, signed transcript, HKDF-SHA256 key derivation and directional AES-256-GCM.
@@ -13,7 +13,7 @@ Current direct-network implementation:
 
 Limitations:
 - NSD is local-network discovery only; it does not discover internet peers or coordinate across mobile networks.
-- Internet peers exchange a signed endpoint QR image out-of-band (for example, using an existing messaging app). The QR includes current detected addresses and an optional user-entered public IPv4 address. A new QR is needed when the reachable address changes.
+- Internet peers exchange a signed V2 endpoint QR image out-of-band (for example, using an existing messaging app). The QR explicitly carries the sender's public signing key and SHA-256 fingerprint, signed together with current detected address candidates and an optional user-entered public IPv4 address. Import rejects a key that differs from the identity pinned during pairing. A new QR is needed when the reachable address changes.
 - No external IP lookup, rendezvous, STUN/TURN, relay, UDP hole punching or automatic endpoint update is used.
 - Global IPv6 candidates may still be blocked by firewall policy. Public IPv4 generally needs router port forwarding for TCP 47831.
 - Carrier-grade NAT or restrictive firewall policies can make the peer unreachable.
