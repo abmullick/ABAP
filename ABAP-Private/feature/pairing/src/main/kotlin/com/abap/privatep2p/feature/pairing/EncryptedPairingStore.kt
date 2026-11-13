@@ -41,6 +41,15 @@ class EncryptedPairingStore(
     }
 
     @Synchronized
+    fun loadPendingResponse(): PendingPairingResponse? {
+        val pending = readState().optJSONObject("pendingResponse") ?: return null
+        return PendingPairingResponse(
+            pending.getString("invitationId"),
+            pending.getString("payload")
+        )
+    }
+
+    @Synchronized
     fun isInvitationConsumed(invitationId: String): Boolean =
         readConsumedIds().contains(invitationId)
 
@@ -49,7 +58,11 @@ class EncryptedPairingStore(
      * A different peer must be explicitly revoked before a replacement can be pinned.
      */
     @Synchronized
-    fun completePairing(peer: PinnedPeer, invitationId: String) {
+    fun completePairing(
+        peer: PinnedPeer,
+        invitationId: String,
+        pendingResponsePayload: String? = null
+    ) {
         require(invitationId.isNotBlank())
         require(peer.publicKey.isNotEmpty() && peer.publicKey.size <= MAX_PUBLIC_KEY_BYTES)
         require(peer.displayName.isNotBlank() && peer.displayName.length <= MAX_DISPLAY_NAME_CHARS)
@@ -76,6 +89,15 @@ class EncryptedPairingStore(
             .put("fingerprint", peer.fingerprint)
             .put("pairedAt", peer.pairedAtEpochSeconds)
         )
+        if (pendingResponsePayload != null) {
+            require(pendingResponsePayload.length <= MAX_PENDING_RESPONSE_CHARS)
+            state.put("pendingResponse", JSONObject()
+                .put("invitationId", invitationId)
+                .put("payload", pendingResponsePayload)
+            )
+        } else {
+            state.remove("pendingResponse")
+        }
         consumed.put(invitationId)
         while (consumed.length() > MAX_CONSUMED_INVITATIONS) consumed.remove(0)
         state.put("consumedInvitations", consumed)
@@ -86,6 +108,7 @@ class EncryptedPairingStore(
     fun revokePeer() {
         val state = readState()
         state.remove("peer")
+        state.remove("pendingResponse")
         writeState(state)
     }
 
@@ -158,6 +181,7 @@ class EncryptedPairingStore(
         private const val MAX_CONSUMED_INVITATIONS = 64
         private const val MAX_PUBLIC_KEY_BYTES = 512
         private const val MAX_DISPLAY_NAME_CHARS = 48
+        private const val MAX_PENDING_RESPONSE_CHARS = 8_192
         private val ASSOCIATED_DATA = "ABAP_PRIVATE_PAIRING_STATE_V1".toByteArray(Charsets.UTF_8)
     }
 }
