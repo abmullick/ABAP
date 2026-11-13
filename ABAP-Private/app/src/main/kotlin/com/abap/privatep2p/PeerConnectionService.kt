@@ -33,6 +33,7 @@ class PeerConnectionService : Service() {
     interface Listener {
         fun onStatus(status: String, connected: Boolean) {}
         fun onMessage(message: StoredChatMessage) {}
+        fun onHistory(messages: List<StoredChatMessage>) {}
         fun onIncomingCall() {}
         fun onCallStatus(status: String, active: Boolean, incoming: Boolean) {}
         fun onError(message: String) {}
@@ -44,6 +45,7 @@ class PeerConnectionService : Service() {
         fun setListener(listener: Listener?) {
             this@PeerConnectionService.listener = listener
             listener?.onStatus(connectionStatus, channel != null)
+            listener?.onHistory(runCatching { pairingStore.loadMessages() }.getOrDefault(emptyList()))
             listener?.onCallStatus(callStatus, audioSession != null, incomingCall)
         }
 
