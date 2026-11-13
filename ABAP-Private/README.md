@@ -32,10 +32,11 @@ The Milestone 1 foundation now includes:
 - A P-256 ECDSA signing identity generated and retained by Android Keystore.
 - Versioned signed invitation and response payloads.
 - Invitation expiry validation and cryptographic response binding to the invitation.
-- SHA-256 public-key fingerprints and explicit confirmation gates in the pairing API.
+- SHA-256 public-key fingerprints with exact-match confirmation gates in the pairing API.
 - QR bitmap generation and an initial screen displaying this device's fingerprint and invitation QR.
+- An AES-256-GCM encrypted local pairing-state store, with a single-peer pin slot and bounded consumed-invitation ledger.
 
-Still missing: camera scanning/import UI, reciprocal fingerprint confirmation screens, secure durable peer pinning, durable replay prevention, revoke/re-pair UX and physical-device tests. This is not yet a complete pairing workflow. No direct P2P networking, messaging or voice transport has been implemented. The app has not yet been compiled or tested in this environment.
+Still missing: camera scanning/import UI, reciprocal confirmation screens and integration of the encrypted store into the complete pairing flow, revoke/re-pair UX and physical-device acceptance tests. The pairing APIs and persistence primitive are not yet a completed end-to-end workflow. No direct P2P networking, messaging or voice transport has been implemented.
 
 ## Connectivity limitation
 Serverless connectivity cannot be guaranteed across arbitrary networks. IPv6 direct connectivity requires globally reachable IPv6 and permissive firewalls. IPv4 may require a stable public endpoint and port forwarding. UDP hole punching is best-effort and cannot be assumed to work across every carrier-grade NAT. QR pairing does not automatically update a peer when its address changes. Without rendezvous or push infrastructure, automatic discovery and incoming calls while suspended cannot be guaranteed.
