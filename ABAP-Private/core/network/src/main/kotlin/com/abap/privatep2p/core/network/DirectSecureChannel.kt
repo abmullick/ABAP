@@ -299,7 +299,7 @@ class DirectPeerListener(
         check(!running)
         require(port in 1..65535)
         server.reuseAddress = true
-        server.bind(InetSocketAddress("0.0.0.0", port))
+        server.bind(InetSocketAddress(port))
         running = true
         thread = Thread({
             while (running) {
